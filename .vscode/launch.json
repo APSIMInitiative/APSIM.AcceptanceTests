@@ -1,0 +1,105 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Watch AcceptanceTestsWebApp",
+            "type": "chrome",
+            "request": "launch",
+            "url": "http://localhost:5012", // Check launchSettings.json for correct URL/Port
+            "runtimeExecutable": "stable", // or "canary", "beta", "path to chrome/edge executable"
+            "internalConsoleOptions": "neverOpen",
+            "serverReadyAction": {
+                "action": "openExternally",
+                "pattern": "Application started. Press Ctrl+C to shut down.",
+                "uriFormat": "http://localhost:5012"
+            },
+            "preLaunchTask": "Dotnet Watch AcceptanceTestsWebApp",
+            "presentation": {
+                "hidden": false,
+                "group": "Hot Reload",
+                "order": 1
+            }
+        },
+        {
+            "name": "Attach Blazor Debug Proxy",
+            "type": "blazorwasm",
+            "request": "attach",
+            "timeout": 60000,
+            "internalConsoleOptions": "neverOpen",
+            "url": "http://localhost:5012", // Must match the URL in the other config
+            "presentation": {
+                "hidden": true,
+                "group": "Hot Reload",
+                "order": 1
+            }
+        },
+        {
+            //This is helpful for debugging with breakpoints.
+            "name": "Debug AcceptanceTestsWebApp",
+            "type": "coreclr",
+            "request": "launch",
+            "program": "/bin/Debug/net10.0/AcceptanceTestsWebApp.dll",
+            "console": "integratedTerminal",
+            "requireExactSource": true,
+            "cwd":"${workspaceFolder}/AcceptanceTestsWebApp",
+            "preLaunchTask": "Build WebApp",
+            // Launches the app in your default browser when the API is ready.
+            "serverReadyAction":{
+                "action": "openExternally",
+                "pattern": "Now listening on: (https?://\\S+)",
+                "killOnServerStop": true
+            },
+        },
+        {
+            "name": "Debug AcceptanceTestsWebAPI",
+            "type": "coreclr",
+            "request": "launch",
+            "program": "/bin/Debug/net10.0/AcceptanceTestsWebAPI.dll",
+            "console": "integratedTerminal",
+            "requireExactSource": true,
+            "cwd":"${workspaceFolder}/AcceptanceTestsWebAPI",
+            "preLaunchTask": "Build WebApi",
+            // Opens the Swagger UI in the browser when the API is ready. 
+            "serverReadyAction":{
+                "action": "openExternally",
+                "pattern": "Now listening on: (https?://\\S+)",
+                "uriFormat": "%s/swagger",
+                "killOnServerStop": true
+            }
+        },
+        {
+            "name": "Debug AcceptanceTestsWebApp after WebApi",
+            "type": "coreclr",
+            "request": "launch",
+            "program": "/bin/Debug/net10.0/AcceptanceTestsWebApp.dll",
+            "console": "integratedTerminal",
+            "requireExactSource": true,
+            "cwd":"${workspaceFolder}/AcceptanceTestsWebApp",
+            "preLaunchTask": "Build All Projects",
+        }
+
+    ],       
+    "compounds": [
+        {
+            "name": "AcceptanceTestsWebApp: Debug (Hot Reload)",
+            "configurations": [ "Watch AcceptanceTestsWebApp", "Attach Blazor Debug Proxy"],
+            "stopAll": true,    
+            "presentation": {
+                "hidden": false,
+                "group": "Hot Reload",
+                "order": 1
+            }       
+        },
+        {
+            "name": "Debug WebAPI & WebApp",
+            "configurations": [ "Debug AcceptanceTestsWebAPI", "Debug AcceptanceTestsWebApp"],
+            "stopAll": true, 
+            "preLaunchTask": "Build All Projects",
+            "presentation": {
+                "hidden": false,
+                "group": "Dual Debug Configurations",
+                "order": 1
+            }
+        }
+    ]
+}

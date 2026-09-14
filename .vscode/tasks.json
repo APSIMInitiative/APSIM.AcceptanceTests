@@ -1,0 +1,77 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Dotnet Watch AcceptanceTestsWebApp",
+			"command": "dotnet",
+			"type": "process",
+			"args": [
+				"watch",
+				"run",
+				"--project",
+				"AcceptanceTestsWebApp.csproj"
+			],
+			"problemMatcher": "$msCompile",
+			"isBackground": true,
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared"
+			},
+			"options": {
+				"cwd": "${workspaceFolder}/AcceptanceTestsWebApp"
+			}
+		},
+		{
+			"label": "Just Watch AcceptanceTestsWebApp",
+			"type": "dotnet",
+			"task": "watch AcceptanceTestsWebApp",
+			"file": "${workspaceFolder}/AcceptanceTestsWebApp/AcceptanceTestsWebApp.csproj",
+			"problemMatcher": "$msCompile",
+			"options": {
+				"cwd": "${workspaceFolder}/AcceptanceTestsWebApp"
+			}
+		},
+		{
+			"label": "Build WebApp",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"build",
+				"AcceptanceTestsWebApp.csproj"
+			],
+			"problemMatcher": "$msCompile",
+			"options": {
+				"cwd": "${workspaceFolder}/AcceptanceTestsWebApp"
+			}
+		},
+		{
+			"label": "Build WebApi",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"build",
+				"AcceptanceTestsWebAPI.csproj"
+			],
+			"problemMatcher": "$msCompile",
+			"options": {
+				"cwd": "${workspaceFolder}/AcceptanceTestsWebAPI"
+			}
+		},
+		{
+			"label": "Build All Projects",
+			"type": "shell",
+			"command": "dotnet build",
+			"options":{
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": "$msCompile",
+			"group": {
+				"kind": "build",
+			}
+		},
+	]
+}
