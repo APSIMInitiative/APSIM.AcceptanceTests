@@ -5,7 +5,7 @@ VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AcceptanceTestsWebApp", "AcceptanceTestsWebApp\AcceptanceTestsWebApp.csproj", "{2CF31508-D215-43AF-B050-F2036C7649BD}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AcceptanceTestsShared", "AcceptanceTestsShared\AcceptanceTestsShared.csproj", "{CBC39821-CBF8-4D13-979B-AD6908C4982C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Shared", "Shared\Shared.csproj", "{CBC39821-CBF8-4D13-979B-AD6908C4982C}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AcceptanceTestsWebAPI", "AcceptanceTestsWebAPI\AcceptanceTestsWebAPI.csproj", "{2469A560-1F6E-4FD6-A4CB-1B2599B0269C}"
 EndProject

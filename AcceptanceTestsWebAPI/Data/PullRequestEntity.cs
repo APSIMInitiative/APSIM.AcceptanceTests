@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Shared.Models;
 
 namespace AcceptanceTestsWebAPI.Data;
 

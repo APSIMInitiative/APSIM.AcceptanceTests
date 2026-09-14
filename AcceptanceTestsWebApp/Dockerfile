@@ -3,7 +3,7 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /app
 
 # Copy the rest of the application files and publish the application
-COPY ./AcceptanceTestsShared ./AcceptanceTestsShared
+COPY ./Shared ./Shared
 COPY ./AcceptanceTestsWebApp ./AcceptanceTestsWebApp
 RUN dotnet publish AcceptanceTestsWebApp/AcceptanceTestsWebApp.csproj -c Release -o /out
 

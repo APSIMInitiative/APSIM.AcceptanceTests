@@ -4,280 +4,36 @@ using System.Reflection;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
+using AcceptanceTestsWebAPI.Configuration;
+using AcceptanceTestsWebAPI.Requests;
 
 // Load environment variables from .env file.
-DotEnv.Load();
+dotenv.net.DotEnv.Load();
+WebApplicationBuilder builder = Builder.CreateBuilder(args);
+WebApplication app = Application.CreateApplication(builder);
 
-var builder = WebApplication.CreateBuilder(args);
 
-// Configure logging with UTC timestamps.
-builder.Logging.ClearProviders();
-builder.Logging.AddSimpleConsole(options =>
-{
-    options.TimestampFormat = "yyyy-MM-dd HH:mm:ss UTC ";
-    options.UseUtcTimestamp = true;
-    options.SingleLine = true;
-});
 
-// Add environment variables to configuration (mapped from Env__Var__Name to Section:Key).
-builder.Configuration
-    .AddInMemoryCollection(new Dictionary<string, string?>
-    {
-        ["Auth:Password"] = Environment.GetEnvironmentVariable("Auth__Password"),
-        ["Auth:Username"] = Environment.GetEnvironmentVariable("Auth__Username"),
-        ["Jwt:Issuer"] = Environment.GetEnvironmentVariable("Jwt__Issuer"),
-        ["Jwt:Audience"] = Environment.GetEnvironmentVariable("Jwt__Audience"),
-        ["Jwt:SigningKey"] = Environment.GetEnvironmentVariable("Jwt__SigningKey"),
-        ["Jwt:TokenExpiryMinutes"] = Environment.GetEnvironmentVariable("Jwt__TokenExpiryMinutes"),
-        ["Verification:BaseUrl"] = Environment.GetEnvironmentVariable("Verification__BaseUrl"),
-        ["Download:BaseUrl"] = Environment.GetEnvironmentVariable("Download__BaseUrl"),
-        ["Download:TokenLifetimeHours"] = Environment.GetEnvironmentVariable("Download__TokenLifetimeHours"),
-        ["Branding:LogoUrl"] = Environment.GetEnvironmentVariable("Branding__LogoUrl")
-    });
-
-string jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? throw new InvalidOperationException("Jwt:Issuer is not configured.");
-string jwtAudience = builder.Configuration["Jwt:Audience"] ?? throw new InvalidOperationException("Jwt:Audience is not configured.");
-string jwtSigningKey = builder.Configuration["Jwt:SigningKey"] ?? throw new InvalidOperationException("Jwt:SigningKey is not configured.");
-string verificationBaseUrl = builder.Configuration["Verification:BaseUrl"] ?? throw new InvalidOperationException("Verification:BaseUrl is not configured.");
-int jwtExpiryMinutes = int.TryParse(builder.Configuration["Jwt:TokenExpiryMinutes"], out var expiryMinutes) ? expiryMinutes : 60;
-int verificationTokenLifetimeHours = int.TryParse(builder.Configuration["Verification:TokenLifetimeHours"], out var tokenLifetimeHours) ? tokenLifetimeHours : 24;
-int downloadTokenLifetimeHours = int.TryParse(builder.Configuration["Download:TokenLifetimeHours"], out var configuredDownloadTokenLifetimeHours)
-    ? configuredDownloadTokenLifetimeHours
-    : 48;
-if (downloadTokenLifetimeHours <= 0)
-{
-    downloadTokenLifetimeHours = 48;
-}
-
-string downloadBaseUrl = builder.Configuration["Download:BaseUrl"]
-    ?? builder.Configuration["Verification:BaseUrl"]
-    ?? throw new InvalidOperationException("Download:BaseUrl or Verification:BaseUrl is not configured.");
-const string downloadAccessPurposeClaim = "download-access";
-
-builder.Services.AddProblemDetails();
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(options =>
-{
-    options.SwaggerDoc("v1", new OpenApiInfo
-    {
-        Version = "v1",
-        Title = "APSIM AcceptanceTests API",
-        Description = "API for managing users and organisations in the APSIM AcceptanceTests System."
-    });
-
-    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-    {
-        Name = "Authorization",
-        Type = SecuritySchemeType.Http,
-        Scheme = "bearer",
-        BearerFormat = "JWT",
-        In = ParameterLocation.Header,
-        Description = "Enter a valid JWT bearer token."
-    });
-
-    options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
-    {
-        [new OpenApiSecuritySchemeReference("Bearer", hostDocument: document, externalResource: null)] = new List<string>()
-    });
-});
-
-builder.Services.AddDbContext<AcceptanceTestsDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("AcceptanceTestsDb")));
-
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateIssuerSigningKey = true,
-            ValidateLifetime = true,
-            ValidIssuer = jwtIssuer,
-            ValidAudience = jwtAudience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSigningKey)),
-            ClockSkew = TimeSpan.FromMinutes(1)
-        };
-    });
-
-builder.Services.AddAuthorization();
-builder.Services.AddDataProtection();
-
-builder.Services.AddRateLimiter(options =>
-{
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.OnRejected = static (context, cancellationToken) =>
-    {
-        context.HttpContext.Response.Headers.RetryAfter = "60";
-        return ValueTask.CompletedTask;
-    };
-
-    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: GetClientIpPartitionKey(httpContext),
-            factory: _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 300,
-                Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0,
-                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                AutoReplenishment = true
-            }));
-
-    options.AddPolicy("auth-token", httpContext =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: GetClientIpPartitionKey(httpContext),
-            factory: _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 8,
-                Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0,
-                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                AutoReplenishment = true
-            }));
-
-    options.AddPolicy("public-downloads", httpContext =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: GetClientIpPartitionKey(httpContext),
-            factory: _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 60,
-                Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0,
-                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                AutoReplenishment = true
-            }));
-
-    options.AddPolicy("authenticated-api", httpContext =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: GetClientIpPartitionKey(httpContext),
-            factory: _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 180,
-                Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0,
-                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                AutoReplenishment = true
-            }));
-});
-
-var app = builder.Build();
-
-string verificationPagePath = Path.Combine(app.Environment.ContentRootPath, "verification.html");
-if (!File.Exists(verificationPagePath))
-{
-    throw new InvalidOperationException($"Verification page was not found at '{verificationPagePath}'.");
-}
-
-string templateLogoUrl = ResolveTemplateLogoUrl(
-    builder.Configuration["Branding:LogoUrl"],
-    builder.Configuration["Verification:BaseUrl"] ?? downloadBaseUrl);
-
-/// Load the verification page HTML and replace the placeholder with the configured base URL for verification links.
-string verificationPageHtml = File.ReadAllText(verificationPagePath)
-    .Replace("{{VerificationBaseUrl}}", builder.Configuration["Verification:BaseUrl"])
-    .Replace("{{LogoUrl}}", templateLogoUrl);
-
-if (!app.Environment.IsEnvironment("Testing"))
-{
-    using var scope = app.Services.CreateScope();
-    AcceptanceTestsDbContext db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
-    db.Database.Migrate();
-}
-
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI(options =>
-    {
-        options.SwaggerEndpoint("/swagger/v1/swagger.json", "APSIM AcceptanceTests API v1");
-        options.DocumentTitle = "APSIM AcceptanceTests API Documentation";
-    });
-}
-
-app.UseHttpsRedirection();
-app.UseRateLimiter();
-app.UseAuthentication();
-app.UseAuthorization();
-
-MailUtility? mailUtility = null;
-string smtpApiKey = Environment.GetEnvironmentVariable("Smtp__ApiKey") ?? string.Empty;
-if (string.IsNullOrEmpty(smtpApiKey))
-    throw new Exception("Unable to create MailUtility: SMTP API key is not configured.");
-mailUtility = CreateMailUtility(smtpApiKey);
-var organisationVerificationPayloadProtector = app.Services
-    .GetRequiredService<IDataProtectionProvider>()
-    .CreateProtector("OrganisationVerificationPayload.v1");
-
-app.MapPost("/api/auth/token", (AuthTokenRequest request) =>
-{
-    var configuredUsername = builder.Configuration["Auth:Username"];
-    var configuredPassword = builder.Configuration["Auth:Password"];
-
-    if (string.IsNullOrWhiteSpace(configuredUsername) || string.IsNullOrWhiteSpace(configuredPassword))
-    {
-        return Results.Problem("Auth credentials are not configured.", statusCode: StatusCodes.Status500InternalServerError);
-    }
-
-    if (!string.Equals(request.Username, configuredUsername, StringComparison.Ordinal) ||
-        !string.Equals(request.Password, configuredPassword, StringComparison.Ordinal))
-    {
-        return Results.Unauthorized();
-    }
-
-    var now = DateTime.UtcNow;
-    var expiresAt = now.AddMinutes(jwtExpiryMinutes);
-
-    var claims = new[]
-    {
-        new Claim(JwtRegisteredClaimNames.Sub, configuredUsername),
-        new Claim(JwtRegisteredClaimNames.UniqueName, configuredUsername),
-        new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
-    };
-
-    var signingCredentials = new SigningCredentials(
-        new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSigningKey)),
-        SecurityAlgorithms.HmacSha256);
-
-    var token = new JwtSecurityToken(
-        issuer: jwtIssuer,
-        audience: jwtAudience,
-        claims: claims,
-        notBefore: now,
-        expires: expiresAt,
-        signingCredentials: signingCredentials);
-
-    var tokenValue = new JwtSecurityTokenHandler().WriteToken(token);
-
-    return Results.Ok(new AuthTokenResponse
-    {
-        AccessToken = tokenValue,
-        ExpiresAtUtc = expiresAt
-    });
-})
-    .AllowAnonymous()
-    .RequireRateLimiting("auth-token")
-    .WithName("CreateAuthToken")
-    .WithTags("Authentication")
-    .Produces<AuthTokenResponse>(StatusCodes.Status200OK)
-    .Produces(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status500InternalServerError);
-
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }))
-    .WithName("GetHealth")
-    .WithTags("Health")
+app.MapGet("/", Generic.Default)
     .Produces(StatusCodes.Status200OK);
 
-app.MapGet("/", () => Results.Ok(new
-{
-    service = "APSIM AcceptanceTests API",
-    status = "ok",
-    health = "/health",
-    swagger = "/swagger"
-}))
+app.MapGet("/health", Generic.Health)
     .WithName("GetRoot")
     .WithTags("Health")
     .Produces(StatusCodes.Status200OK);
+
+app.MapGet("/Azure/Test", Azure.Test)
+    .AllowAnonymous()
+    .RequireRateLimiting("public-downloads")
+    .WithName("CreateDownloadAccessLink")
+    .WithTags("Downloads")
+    .Produces(StatusCodes.Status200OK)
+    .Produces(StatusCodes.Status400BadRequest)
+    .Produces(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+/*
+const string downloadAccessPurposeClaim = "download-access";
 
 app.MapGet("/api/downloads/link", async (string email, AcceptanceTestsDbContext db) =>
 {
@@ -948,21 +704,7 @@ organisations.MapGet("/verify", async (string token, string? payload, Acceptance
 app.Run();
 
 
-static string ResolveTemplateLogoUrl(string? configuredLogoUrl, string? baseUrl)
-{
-    if (!string.IsNullOrWhiteSpace(configuredLogoUrl))
-    {
-        return configuredLogoUrl;
-    }
 
-    return "https://www.apsim.info/wp-content/uploads/2026/05/APSIM_transparent-154x100-1.png";
-}
-
-static string GetClientIpPartitionKey(HttpContext httpContext)
-{
-    var clientIp = httpContext.Connection.RemoteIpAddress?.ToString();
-    return string.IsNullOrWhiteSpace(clientIp) ? "unknown" : clientIp;
-}
 
 static string GetEnumDescription<TEnum>(TEnum value)
     where TEnum : Enum
@@ -1283,3 +1025,4 @@ static async Task<bool> IsOrgNameADuplicate(
 
 /// <summary>Marker type used by WebApplicationFactory to locate the AcceptanceTestsWebAPI entry point.</summary>
 public class AcceptanceTestsWebApiMarker { }
+*/

@@ -1,4 +1,4 @@
-namespace AcceptanceTestsWebAPI.Models;
+namespace Shared.Models;
 
 public enum PullRequestStatus
 {

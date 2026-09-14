@@ -1,8 +1,8 @@
-# AcceptanceTestsShared
+# Shared
 
 ## Overview
 
-AcceptanceTestsShared is a shared library for the APSIM AcceptanceTests System, providing common enums and models used across both the API and web application.
+Shared is a shared library for the APSIM AcceptanceTests System, providing common enums and models used across both the API and web application.
 
 ## Building
 

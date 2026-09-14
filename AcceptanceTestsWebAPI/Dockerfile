@@ -4,7 +4,7 @@ WORKDIR /src
 
 # Copy the rest of the application files and publish the application
 COPY ./AcceptanceTestsWebAPI ./AcceptanceTestsWebAPI
-COPY ./AcceptanceTestsShared ./AcceptanceTestsShared
+COPY ./Shared ./Shared
 RUN dotnet publish AcceptanceTestsWebAPI/AcceptanceTestsWebAPI.csproj -c Release -o /out
 
 # Use the official .NET runtime image to run the application

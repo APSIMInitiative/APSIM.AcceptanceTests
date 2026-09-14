@@ -3,10 +3,9 @@ using dotenv.net;
 using Microsoft.AspNetCore.Components.Server.Circuits;
 using Microsoft.AspNetCore.HttpOverrides;
 using AcceptanceTestsWebApp.Components;
-using AcceptanceTestsWebApp.Components.Utilities;
 
 DotEnv.Load();
-
+/*
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSingleton<WebApiUtility>();
@@ -83,3 +82,4 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.Run();
+*/
