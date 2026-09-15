@@ -59,11 +59,10 @@
             "requireExactSource": true,
             "cwd":"${workspaceFolder}/AcceptanceTestsWebAPI",
             "preLaunchTask": "Build WebApi",
-            // Opens the Swagger UI in the browser when the API is ready. 
             "serverReadyAction":{
                 "action": "openExternally",
                 "pattern": "Now listening on: (https?://\\S+)",
-                "uriFormat": "%s/swagger",
+                "uriFormat": "%s/",
                 "killOnServerStop": true
             }
         },

@@ -4,13 +4,7 @@ public class Generic
 {
     public static IResult Default()
     {
-        return Results.Ok(new
-        {
-            service = "APSIM AcceptanceTests API",
-            status = "ok",
-            health = "/health",
-            swagger = "/swagger"
-        });
+        return Results.Ok(new { status = "ok" });
     }
 
     public static IResult Health()

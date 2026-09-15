@@ -34,8 +34,8 @@ public class Application
 
         app.UseHttpsRedirection();
         app.UseRateLimiter();
-        app.UseAuthentication();
-        app.UseAuthorization();
+        //app.UseAuthentication();
+        //app.UseAuthorization();
 
         return app;
     }

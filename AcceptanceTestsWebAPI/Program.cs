@@ -12,8 +12,6 @@ dotenv.net.DotEnv.Load();
 WebApplicationBuilder builder = Builder.CreateBuilder(args);
 WebApplication app = Application.CreateApplication(builder);
 
-
-
 app.MapGet("/", Generic.Default)
     .Produces(StatusCodes.Status200OK);
 
@@ -31,6 +29,11 @@ app.MapGet("/Azure/Test", Azure.Test)
     .Produces(StatusCodes.Status400BadRequest)
     .Produces(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+app.Run();
+
+/// <summary>Marker type used by WebApplicationFactory to locate the AcceptanceTestsWebAPI entry point.</summary>
+//public class AcceptanceTestsWebApiMarker { }
 
 /*
 const string downloadAccessPurposeClaim = "download-access";
@@ -701,7 +704,7 @@ organisations.MapGet("/verify", async (string token, string? payload, Acceptance
     .Produces(StatusCodes.Status400BadRequest)
     .Produces(StatusCodes.Status404NotFound);
 
-app.Run();
+
 
 
 
@@ -1023,6 +1026,5 @@ static async Task<bool> IsOrgNameADuplicate(
     return duplicateName;
 }
 
-/// <summary>Marker type used by WebApplicationFactory to locate the AcceptanceTestsWebAPI entry point.</summary>
-public class AcceptanceTestsWebApiMarker { }
+
 */
