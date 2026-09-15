@@ -13,18 +13,36 @@ WebApplicationBuilder builder = Builder.CreateBuilder(args);
 WebApplication app = Application.CreateApplication(builder);
 
 app.MapGet("/", Generic.Default)
-    .Produces(StatusCodes.Status200OK);
-
-app.MapGet("/health", Generic.Health)
-    .WithName("GetRoot")
-    .WithTags("Health")
-    .Produces(StatusCodes.Status200OK);
-
-app.MapGet("/Azure/Test", Azure.Test)
     .AllowAnonymous()
-    .RequireRateLimiting("public-downloads")
-    .WithName("CreateDownloadAccessLink")
-    .WithTags("Downloads")
+    .Produces(StatusCodes.Status200OK);
+
+app.MapGet("/api/health", Generic.Health)
+    .AllowAnonymous()
+    .Produces(StatusCodes.Status200OK);
+
+app.MapGet("/api/pr/open", PullRequestEndpoints.Open)
+    .AllowAnonymous()
+    .Produces(StatusCodes.Status200OK)
+    .Produces(StatusCodes.Status400BadRequest)
+    .Produces(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+app.MapGet("/api/pr/start", PullRequestEndpoints.Start)
+    .AllowAnonymous()
+    .Produces(StatusCodes.Status200OK)
+    .Produces(StatusCodes.Status400BadRequest)
+    .Produces(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+app.MapGet("/api/pr/jobcomplete", PullRequestEndpoints.JobComplete)
+    .AllowAnonymous()
+    .Produces(StatusCodes.Status200OK)
+    .Produces(StatusCodes.Status400BadRequest)
+    .Produces(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+app.MapGet("/api/test/clear", PullRequestEndpoints.Clear)
+    .AllowAnonymous()
     .Produces(StatusCodes.Status200OK)
     .Produces(StatusCodes.Status400BadRequest)
     .Produces(StatusCodes.Status404NotFound)
