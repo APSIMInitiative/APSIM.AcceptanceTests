@@ -1,12 +1,10 @@
 name: Publish Docker Images to GHCR
 
 on:
-  pull_request_target:
+  push:
     branches:
-      - main
-    types:
-      - closed
-
+      - master
+      
 env:
   REGISTRY: ghcr.io
   ORGANIZATION: apsiminitiative
