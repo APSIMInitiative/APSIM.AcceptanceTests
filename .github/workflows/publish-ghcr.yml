@@ -3,7 +3,7 @@ name: Publish Docker Images to GHCR
 on:
   push:
     branches:
-      - master
+      - main
       
 env:
   REGISTRY: ghcr.io
