@@ -56,6 +56,7 @@ public class Builder
 
         builder.Services.AddProblemDetails();
         builder.Services.AddEndpointsApiExplorer();
+        builder.Services.AddHostedService<DatabaseManager>();
         builder.Services.AddSwaggerGen(options =>
         {
             options.SwaggerDoc("v1", new OpenApiInfo

@@ -1,9 +1,3 @@
-using System.ComponentModel;
-using System.Net.Mail;
-using System.Reflection;
-using System.Security.Claims;
-using System.Text;
-using System.Text.Json;
 using AcceptanceTestsWebAPI.Configuration;
 using AcceptanceTestsWebAPI.Requests;
 
@@ -27,21 +21,35 @@ app.MapGet("/api/pr/open", PullRequestEndpoints.Open)
     .Produces(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status500InternalServerError);
 
-app.MapGet("/api/pr/start", PullRequestEndpoints.Start)
+app.MapPost("/api/pr/start", PullRequestEndpoints.Start)
     .AllowAnonymous()
     .Produces(StatusCodes.Status200OK)
     .Produces(StatusCodes.Status400BadRequest)
     .Produces(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status500InternalServerError);
 
-app.MapGet("/api/pr/jobcomplete", PullRequestEndpoints.JobComplete)
+app.MapPost("/api/pr/jobcomplete", PullRequestEndpoints.JobComplete)
     .AllowAnonymous()
     .Produces(StatusCodes.Status200OK)
     .Produces(StatusCodes.Status400BadRequest)
     .Produces(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status500InternalServerError);
 
-app.MapGet("/api/test/clear", PullRequestEndpoints.Clear)
+app.MapGet("/api/pr/get", PullRequestEndpoints.Get)
+    .AllowAnonymous()
+    .Produces(StatusCodes.Status200OK)
+    .Produces(StatusCodes.Status400BadRequest)
+    .Produces(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+app.MapGet("/api/test/delete", PullRequestEndpoints.Delete)
+    .AllowAnonymous()
+    .Produces(StatusCodes.Status200OK)
+    .Produces(StatusCodes.Status400BadRequest)
+    .Produces(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+app.MapGet("/api/test/deleteall", PullRequestEndpoints.DeleteAll)
     .AllowAnonymous()
     .Produces(StatusCodes.Status200OK)
     .Produces(StatusCodes.Status400BadRequest)
