@@ -55,3 +55,16 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Ignore SQLite database files
+*.sqlite
+*.sqlite3
+*.db
+*.db3
+
+# Optional: Ignore SQLite journal and WAL files
+*.sqlite-journal
+*.sqlite3-journal
+*.db-journal
+*.db-wal
+*.db-shm

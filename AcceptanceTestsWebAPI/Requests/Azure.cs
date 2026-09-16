@@ -2,7 +2,7 @@ using AcceptanceTestsWebAPI.Data;
 
 namespace AcceptanceTestsWebAPI.Requests;
 
-public class Azure
+public class PullRequest
 {
     public static IResult Test(AcceptanceTestsDbContext db)
     {

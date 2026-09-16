@@ -20,13 +20,19 @@ public class PullRequestEntity
     /// 
     /// </summary>
     [Required]
-    public string Number { get; set; } = string.Empty;
+    public string PullRequest { get; set; } = string.Empty;
 
     /// <summary>
     /// 
     /// </summary>
     [Required]
     public string Commit { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 
+    /// </summary>
+    [Required]
+    public string Author { get; set; } = string.Empty;
 
     /// <summary>
     /// 
