@@ -50,7 +50,7 @@ dotnet build
 
 ```bash
 docker build -f AcceptanceTestsWebApp/Dockerfile -t apsim-AcceptanceTests-webapp .
-docker run -p 8089:8089 apsim-AcceptanceTests-webapp
+docker run -p 8090:8090 apsim-AcceptanceTests-webapp
 ```
 
 ## Application Routes & Pages

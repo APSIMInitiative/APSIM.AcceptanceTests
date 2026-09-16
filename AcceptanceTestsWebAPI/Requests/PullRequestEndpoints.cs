@@ -88,7 +88,6 @@ public class PullRequestEndpoints
         await db.PullRequests.Where(row => row.PullRequest == pullRequest && row.Commit == commit)
                              .ExecuteUpdateAsync(s => s.SetProperty(b => b.NumberOfTasksCompleted, b => b.NumberOfTasksCompleted + 1));
 
-        //check if the PR exists
         PullRequestEntity? pr = await GetPullRequestFromDB(db, pullRequest, commit);
         if (pr == null)
             return Results.BadRequest(new { status = $"Pull Request with number {pullRequest} and commit hash {commit} was not found in the database" });
@@ -109,9 +108,35 @@ public class PullRequestEndpoints
         return Results.Ok(new { status = "ok" });
     }
 
-    public async static Task<IResult> Clear(AcceptanceTestsDbContext db)
+    public async static Task<IResult> Delete(AcceptanceTestsDbContext db, string token, string pullRequest, string commit)
     {
-        return Results.Ok(new { status = "ok" });
+        if (token == "12345678")
+        {
+            PullRequestEntity? pr = await GetPullRequestFromDB(db, pullRequest, commit);
+            if (pr == null)
+                return Results.BadRequest(new { status = $"Pull Request with number {pullRequest} and commit hash {commit} was not found in the database" });
+            
+            db.PullRequests.Remove(pr);
+            await db.SaveChangesAsync();
+            return Results.Ok(new { status = "ok" });
+        }
+        else
+        {
+            return Results.BadRequest(new { status = $"" });
+        }
+    }
+
+    public async static Task<IResult> DeleteAll(AcceptanceTestsDbContext db, string token)
+    {
+        if (token == "12345678")
+        {
+            await db.PullRequests.ExecuteDeleteAsync();
+            return Results.Ok(new { status = "ok" });
+        }
+        else
+        {
+            return Results.BadRequest(new { status = $"" });
+        }
     }
 
     private async static Task<PullRequestEntity?> GetPullRequestFromDB(AcceptanceTestsDbContext db, string pullRequest, string commit)
