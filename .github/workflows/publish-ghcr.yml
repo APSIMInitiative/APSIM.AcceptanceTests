@@ -22,7 +22,7 @@ jobs:
         include:
           - image_name: ava-api
             dockerfile: AcceptanceTestsWebAPI/Dockerfile
-          - image_name: ava-webapp
+          - image_name: ava-site
             dockerfile: AcceptanceTestsWebApp/Dockerfile
 
     steps:
