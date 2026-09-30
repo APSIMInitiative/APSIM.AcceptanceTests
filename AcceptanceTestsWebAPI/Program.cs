@@ -6,7 +6,7 @@ dotenv.net.DotEnv.Load();
 WebApplicationBuilder builder = Builder.CreateBuilder(args);
 WebApplication app = Application.CreateApplication(builder);
 
-app.MapGet("/", Generic.Default)
+app.MapGet("/api", Generic.Default)
     .AllowAnonymous()
     .Produces(StatusCodes.Status200OK);
 
