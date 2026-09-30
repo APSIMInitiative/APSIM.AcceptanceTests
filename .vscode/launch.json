@@ -64,6 +64,9 @@
                 "pattern": "Now listening on: (https?://\\S+)",
                 "uriFormat": "%s/",
                 "killOnServerStop": true
+            },
+            "env": {
+                "ASPNETCORE_URLS":"http://localhost:5276"
             }
         },
         {
