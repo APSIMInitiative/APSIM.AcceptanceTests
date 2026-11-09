@@ -112,6 +112,11 @@ public class PullRequestEndpoints
         return Results.Ok(pr); 
     }
 
+    public async static Task<IResult> List(AcceptanceTestsDbContext db)
+    {
+        return Results.Ok(db.PullRequests);
+    }
+
     public async static Task<IResult> Delete(AcceptanceTestsDbContext db, string token, string pullRequest, string commit)
     {
         if (token == "12345678")

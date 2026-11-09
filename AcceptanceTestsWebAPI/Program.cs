@@ -42,6 +42,13 @@ app.MapGet("/api/pr/get", PullRequestEndpoints.Get)
     .Produces(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status500InternalServerError);
 
+app.MapGet("/api/pr/list", PullRequestEndpoints.List)
+    .AllowAnonymous()
+    .Produces(StatusCodes.Status200OK)
+    .Produces(StatusCodes.Status400BadRequest)
+    .Produces(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status500InternalServerError);
+
 app.MapGet("/api/test/delete", PullRequestEndpoints.Delete)
     .AllowAnonymous()
     .Produces(StatusCodes.Status200OK)
