@@ -2,6 +2,81 @@
 
 A modern ASP.NET Core minimal Web API for managing APSIM AcceptanceTestss with JWT-based authentication and SQLite persistence.
 
+## Fetching acceptance-test databases
+
+AVA pulls databases from the Azure Blob Storage container belonging to a run.
+Configure `DatabaseFetch:StorageAccountUri` with the HTTPS URI of the storage
+account, and `DatabaseFetch:Directory` with a directory on persistent storage.
+Both settings are in `appsettings.json` and `appsettings.Development.json` and
+can be overridden using `DatabaseFetch__StorageAccountUri` and
+`DatabaseFetch__Directory` environment variables. Relative directory paths are
+resolved against the API content root. The default directory is
+`FetchedDatabases`; mount it on persistent storage when running in a container.
+The SQLite database also needs persistent storage.
+
+The API uses `DefaultAzureCredential`: configure a managed identity in Azure or
+an appropriate developer credential locally. Grant it permission to list and
+read blobs in the run containers (for example, Storage Blob Data Reader). The
+account URI must not contain credentials. No storage credentials belong in the
+settings files.
+
+### Run and completion requests
+
+Add the **exact**, unique Azure container name to each `/api/pr/start` request:
+
+```json
+{
+  "pullRequest": "123",
+  "commit": "a1b2c3d",
+  "containerName": "2026-11-12-acceptance-tests-pr-123-storage",
+  "paths": ["Tests/Wheat.apsimx", "Tests/Barley.apsimx"]
+}
+```
+
+Paths must be non-empty and distinct within a run. Reusing a container for the
+same pull request and commit is rejected. Each `/api/pr/jobcomplete` request
+must identify the same container and one of those paths:
+
+```json
+{
+  "pullRequest": "123",
+  "commit": "a1b2c3d",
+  "containerName": "2026-11-12-acceptance-tests-pr-123-storage",
+  "path": "Tests/Wheat.apsimx",
+  "time": 12.5,
+  "data": ["passed"]
+}
+```
+
+Send a completion notification only after the job's output uploads have
+succeeded, and do not modify those outputs afterwards. A job need not produce
+a database. Repeated notifications for a completed job are safe; notifications
+for an old run or an unknown path are rejected. The existing API-wide rate
+limit is 300 requests per minute per client IP; callers should retry HTTP 429
+responses using the `Retry-After` header, particularly when nodes share an IP.
+
+Once every distinct job has reported completion, the background service closes
+the pull request and queues a fetch. A worker lists all blobs under `databases/`
+and downloads `.db` files sequentially to
+`<DatabaseFetch:Directory>/<run-id>/<relative-blob-path>`. It preserves nested
+paths and retains files for future processing; no statistics are calculated.
+An empty listing is a successful fetch.
+
+Use `GET /api/pr/fetch?pullRequest=123&commit=a1b2c3d&containerName=...`
+to check the run ID, status, attempts, downloaded count and latest error.
+Statuses are `WaitingForJobs`, `Pending`, `Fetching`, `Completed`, and
+`TimedOut`. Failures are logged and retried with increasing delays (up to
+64 minutes); a lease permits interrupted fetches to be reclaimed. A retry
+lists the container and downloads its files again. A timeout does not queue a
+fetch. The existing 30-minute run timeout is measured from each start request.
+Run one AVA instance unless its SQLite database and download directory are
+shared with reliable locking.
+
+This changes both request contracts: update the callers before starting new
+runs. Runs already in progress before this migration lack container and job
+identities and cannot be fetched safely; drain them before deployment or
+handle them separately.
+
 ## Overview
 
 This API provides a complete AcceptanceTests management system supporting:

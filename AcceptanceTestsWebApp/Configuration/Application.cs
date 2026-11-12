@@ -2,6 +2,7 @@ using AcceptanceTestsWebApp.Components;
 
 namespace AcceptanceTestsWebApp.Configuration;
 
+/// <summary>Builds the web application and configures its HTTP and Razor component pipeline.</summary>
 public class Application
 {
     public static WebApplication CreateApplication(WebApplicationBuilder builder)
