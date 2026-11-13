@@ -17,7 +17,7 @@ namespace AcceptanceTestsWebAPI.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
 
-            modelBuilder.Entity("AcceptanceTestsWebAPI.Data.AcceptanceJobEntity", b =>
+            modelBuilder.Entity("AcceptanceTestsWebAPI.Data.AcceptanceTaskEntity", b =>
                 {
                     b.Property<Guid>("RunId")
                         .HasColumnType("TEXT");
@@ -33,7 +33,7 @@ namespace AcceptanceTestsWebAPI.Migrations
                     b.ToTable("Jobs");
                 });
 
-            modelBuilder.Entity("AcceptanceTestsWebAPI.Data.AcceptanceRunEntity", b =>
+            modelBuilder.Entity("AcceptanceTestsWebAPI.Data.AcceptanceJobEntity", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -123,9 +123,9 @@ namespace AcceptanceTestsWebAPI.Migrations
                     b.ToTable("PullRequests");
                 });
 
-            modelBuilder.Entity("AcceptanceTestsWebAPI.Data.AcceptanceJobEntity", b =>
+            modelBuilder.Entity("AcceptanceTestsWebAPI.Data.AcceptanceTaskEntity", b =>
                 {
-                    b.HasOne("AcceptanceTestsWebAPI.Data.AcceptanceRunEntity", "Run")
+                    b.HasOne("AcceptanceTestsWebAPI.Data.AcceptanceJobEntity", "Run")
                         .WithMany()
                         .HasForeignKey("RunId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -134,7 +134,7 @@ namespace AcceptanceTestsWebAPI.Migrations
                     b.Navigation("Run");
                 });
 
-            modelBuilder.Entity("AcceptanceTestsWebAPI.Data.AcceptanceRunEntity", b =>
+            modelBuilder.Entity("AcceptanceTestsWebAPI.Data.AcceptanceJobEntity", b =>
                 {
                     b.HasOne("AcceptanceTestsWebAPI.Data.PullRequestEntity", "PullRequest")
                         .WithMany()

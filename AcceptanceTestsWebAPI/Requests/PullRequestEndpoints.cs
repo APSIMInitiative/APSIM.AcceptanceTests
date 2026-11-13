@@ -85,7 +85,7 @@ public class PullRequestEndpoints
         if (pr.Status == PullRequestStatus.Running)
             return Results.BadRequest(new { status = $"Pull Request with number {pullRequest} and commit hash {commit} is already running" });
 
-        if (await db.Runs.AnyAsync(run => run.PullRequestId == pr.Id && run.ContainerName == request.ContainerName, cancellationToken))
+        if (await db.Jobs.AnyAsync(run => run.PullRequestId == pr.Id && run.ContainerName == request.ContainerName, cancellationToken))
             return Results.Conflict(new { status = "The container name has already been used for this pull request and commit" });
 
         Guid runId = Guid.NewGuid();
@@ -103,8 +103,8 @@ public class PullRequestEndpoints
         if (updated == 0)
             return Results.Conflict(new { status = "The pull request is already running" });
 
-        db.Runs.Add(new AcceptanceRunEntity { Id = runId, PullRequestId = pr.Id, ContainerName = request.ContainerName });
-        db.Jobs.AddRange(request.Paths.Select(path => new AcceptanceJobEntity { RunId = runId, Path = path }));
+        db.Jobs.Add(new AcceptanceJobEntity { Id = runId, PullRequestId = pr.Id, ContainerName = request.ContainerName });
+        db.Tasks.AddRange(request.Paths.Select(path => new AcceptanceTaskEntity { RunId = runId, Path = path }));
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
@@ -158,7 +158,7 @@ public class PullRequestEndpoints
         if (pr == null)
             return Results.BadRequest(new { status = $"Pull Request with number {pullRequest} and commit hash {commit} was not found in the database" });
 
-        AcceptanceRunEntity? run = await db.Runs.AsNoTracking().FirstOrDefaultAsync(
+        AcceptanceJobEntity? run = await db.Jobs.AsNoTracking().FirstOrDefaultAsync(
             row => row.PullRequestId == pr.Id && row.ContainerName == request.ContainerName, cancellationToken);
         if (run == null || pr.CurrentRunId != run.Id)
             return Results.Conflict(new { status = "The container does not identify the current run" });
@@ -166,7 +166,7 @@ public class PullRequestEndpoints
         // Mark the job and increment the count in one transaction. The predicate also
         // rechecks the current run so concurrent or late notifications cannot advance it.
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        int completed = await db.Jobs.Where(job => job.RunId == run.Id && job.Path == path && !job.Completed &&
+        int completed = await db.Tasks.Where(job => job.RunId == run.Id && job.Path == path && !job.Completed &&
                 db.PullRequests.Any(row => row.Id == pr.Id && row.CurrentRunId == run.Id && row.Status == PullRequestStatus.Running))
             .ExecuteUpdateAsync(setters => setters.SetProperty(job => job.Completed, true), cancellationToken);
         if (completed == 1)
@@ -178,7 +178,7 @@ public class PullRequestEndpoints
         }
 
         // A retry is successful even after the run closes, but not after a different run starts.
-        bool alreadyCompleted = await db.Jobs.AsNoTracking().AnyAsync(
+        bool alreadyCompleted = await db.Tasks.AsNoTracking().AnyAsync(
             job => job.RunId == run.Id && job.Path == path && job.Completed &&
                 db.PullRequests.Any(row => row.Id == pr.Id && row.CurrentRunId == run.Id), cancellationToken);
         if (!alreadyCompleted)
@@ -211,7 +211,7 @@ public class PullRequestEndpoints
     /// <summary>Gets the database fetch status for a run.</summary>
     public async static Task<IResult> GetDatabaseFetch(AcceptanceTestsDbContext db, string pullRequest, string commit, string containerName, CancellationToken cancellationToken)
     {
-        var run = await db.Runs.AsNoTracking().Where(row => row.PullRequest.PullRequest == pullRequest &&
+        var run = await db.Jobs.AsNoTracking().Where(row => row.PullRequest.PullRequest == pullRequest &&
                 row.PullRequest.Commit == commit && row.ContainerName == containerName)
             .Select(row => new { row.Id, row.ContainerName, row.FetchStatus, row.FetchAttempts, row.DownloadedFiles, row.FetchError })
             .FirstOrDefaultAsync(cancellationToken);

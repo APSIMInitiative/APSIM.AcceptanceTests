@@ -26,7 +26,7 @@ public sealed class RunWorkflowTests
             var pr = await db.PullRequests.SingleAsync();
             Assert.Equal(1, pr.NumberOfTasksCompleted);
             Assert.Equal(PullRequestStatus.Running, pr.Status);
-            Assert.Equal(DatabaseFetchStatus.WaitingForJobs, (await db.Runs.SingleAsync()).FetchStatus);
+            Assert.Equal(DatabaseFetchStatus.WaitingForJobs, (await db.Jobs.SingleAsync()).FetchStatus);
         }
 
         Assert.Equal(409, await fixture.CompleteAsync("run-one", "not-a-job"));
@@ -36,7 +36,7 @@ public sealed class RunWorkflowTests
         {
             var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
             Assert.Equal(PullRequestStatus.Closed, (await db.PullRequests.SingleAsync()).Status);
-            Assert.Equal(DatabaseFetchStatus.Pending, (await db.Runs.SingleAsync()).FetchStatus);
+            Assert.Equal(DatabaseFetchStatus.Pending, (await db.Jobs.SingleAsync()).FetchStatus);
         }
         Assert.Equal(200, await fixture.CompleteAsync("run-one", "two"));
     }
@@ -53,7 +53,7 @@ public sealed class RunWorkflowTests
         using var scope = fixture.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
         Assert.Equal(20, (await db.PullRequests.SingleAsync()).NumberOfTasksCompleted);
-        Assert.Equal(DatabaseFetchStatus.Pending, (await db.Runs.SingleAsync()).FetchStatus);
+        Assert.Equal(DatabaseFetchStatus.Pending, (await db.Jobs.SingleAsync()).FetchStatus);
     }
 
     [Fact]
@@ -79,7 +79,7 @@ public sealed class RunWorkflowTests
         var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
         IResult result = await PullRequestEndpoints.Start(db, new("123", "abc", ["one"], "run-one"), CancellationToken.None);
         Assert.Equal(409, ((IStatusCodeHttpResult)result).StatusCode);
-        Assert.Equal(2, await db.Runs.CountAsync());
+        Assert.Equal(2, await db.Jobs.CountAsync());
     }
 
     [Fact]
@@ -98,7 +98,7 @@ public sealed class RunWorkflowTests
         {
             var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
             Assert.Equal(PullRequestStatus.Timeout, (await db.PullRequests.SingleAsync()).Status);
-            Assert.Equal(DatabaseFetchStatus.TimedOut, (await db.Runs.SingleAsync()).FetchStatus);
+            Assert.Equal(DatabaseFetchStatus.TimedOut, (await db.Jobs.SingleAsync()).FetchStatus);
         }
         Assert.Equal(409, await fixture.CompleteAsync("run-one", "one"));
     }
@@ -111,7 +111,7 @@ public sealed class RunWorkflowTests
         var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
         IResult result = await PullRequestEndpoints.Start(db, new("123", "abc", ["one", "one"], "run-one"), CancellationToken.None);
         Assert.Equal(400, ((IStatusCodeHttpResult)result).StatusCode);
-        Assert.Empty(await db.Runs.ToListAsync());
+        Assert.Empty(await db.Jobs.ToListAsync());
     }
 
     [Fact]
@@ -127,7 +127,7 @@ public sealed class RunWorkflowTests
         using (var scope = fixture.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
-            var run = await db.Runs.SingleAsync();
+            var run = await db.Jobs.SingleAsync();
             Assert.Equal(DatabaseFetchStatus.Pending, run.FetchStatus);
             Assert.NotNull(run.FetchError);
             Assert.NotNull(run.NextAttemptUtc);
@@ -141,7 +141,7 @@ public sealed class RunWorkflowTests
         using (var scope = fixture.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
-            var run = await db.Runs.SingleAsync();
+            var run = await db.Jobs.SingleAsync();
             Assert.Equal(DatabaseFetchStatus.Completed, run.FetchStatus);
             Assert.Equal(0, run.DownloadedFiles);
             Assert.Null(run.FetchError);
@@ -160,7 +160,7 @@ public sealed class RunWorkflowTests
         using (var scope = fixture.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
-            (await db.Runs.SingleAsync()).NextAttemptUtc = DateTime.UtcNow.AddHours(1);
+            (await db.Jobs.SingleAsync()).NextAttemptUtc = DateTime.UtcNow.AddHours(1);
             await db.SaveChangesAsync();
         }
 
@@ -177,7 +177,7 @@ public sealed class RunWorkflowTests
         using (var scope = fixture.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
-            var run = await db.Runs.SingleAsync();
+            var run = await db.Jobs.SingleAsync();
             run.FetchStatus = DatabaseFetchStatus.Fetching;
             run.LeaseId = Guid.NewGuid();
             run.LeaseExpiresUtc = DateTime.UtcNow.AddHours(1);
@@ -189,7 +189,7 @@ public sealed class RunWorkflowTests
         using (var scope = fixture.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
-            var run = await db.Runs.SingleAsync();
+            var run = await db.Jobs.SingleAsync();
             run.FetchStatus = DatabaseFetchStatus.Pending;
             run.NextAttemptUtc = DateTime.UtcNow.AddMinutes(-1);
             await db.SaveChangesAsync();

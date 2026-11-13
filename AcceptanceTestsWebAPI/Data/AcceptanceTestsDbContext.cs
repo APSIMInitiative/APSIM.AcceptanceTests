@@ -5,8 +5,8 @@ namespace AcceptanceTestsWebAPI.Data;
 public class AcceptanceTestsDbContext(DbContextOptions<AcceptanceTestsDbContext> options) : DbContext(options)
 {
     public DbSet<PullRequestEntity> PullRequests => Set<PullRequestEntity>();
-    public DbSet<AcceptanceRunEntity> Runs => Set<AcceptanceRunEntity>();
     public DbSet<AcceptanceJobEntity> Jobs => Set<AcceptanceJobEntity>();
+    public DbSet<AcceptanceTaskEntity> Tasks => Set<AcceptanceTaskEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -16,15 +16,17 @@ public class AcceptanceTestsDbContext(DbContextOptions<AcceptanceTestsDbContext>
             entity.Property(e => e.Name).IsRequired();
             entity.HasIndex(e => e.Name).IsUnique();
         });
-        modelBuilder.Entity<AcceptanceRunEntity>(entity =>
+        modelBuilder.Entity<AcceptanceJobEntity>(entity =>
         {
+            entity.ToTable("Runs");
             entity.HasKey(e => e.Id);
             // A container identifies one run for a given pull request record.
             entity.HasIndex(e => new { e.PullRequestId, e.ContainerName }).IsUnique();
             entity.HasOne(e => e.PullRequest).WithMany().HasForeignKey(e => e.PullRequestId).OnDelete(DeleteBehavior.Cascade);
         });
-        modelBuilder.Entity<AcceptanceJobEntity>(entity =>
+        modelBuilder.Entity<AcceptanceTaskEntity>(entity =>
         {
+            entity.ToTable("Jobs");
             // The run and job path together identify one job for completion tracking.
             entity.HasKey(e => new { e.RunId, e.Path });
             entity.HasOne(e => e.Run).WithMany().HasForeignKey(e => e.RunId).OnDelete(DeleteBehavior.Cascade);

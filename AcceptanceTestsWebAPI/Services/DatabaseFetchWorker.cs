@@ -44,7 +44,7 @@ public sealed class DatabaseFetchWorker(
         using IServiceScope scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
         DateTime now = DateTime.UtcNow;
-        AcceptanceRunEntity? run = await ReadyToFetch(db.Runs.AsNoTracking(), now)
+        AcceptanceJobEntity? run = await ReadyToFetch(db.Jobs.AsNoTracking(), now)
             .OrderBy(row => row.NextAttemptUtc)
             .FirstOrDefaultAsync(stoppingToken);
         if (run == null)
@@ -52,7 +52,7 @@ public sealed class DatabaseFetchWorker(
 
         Guid leaseId = Guid.NewGuid();
         // Recheck eligibility in the update itself so only one worker can claim the run.
-        int claimed = await ReadyToFetch(db.Runs.Where(row => row.Id == run.Id), now)
+        int claimed = await ReadyToFetch(db.Jobs.Where(row => row.Id == run.Id), now)
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(row => row.FetchStatus, DatabaseFetchStatus.Fetching)
                 .SetProperty(row => row.LeaseId, leaseId)
@@ -68,7 +68,7 @@ public sealed class DatabaseFetchWorker(
             int count = await fetcher.FetchAsync(run.Id, run.ContainerName, fetchCancellation.Token);
             fetchCancellation.Token.ThrowIfCancellationRequested();
             // Only the holder of a still-valid lease can publish a successful result.
-            int completed = await db.Runs.Where(row => row.Id == run.Id && row.LeaseId == leaseId &&
+            int completed = await db.Jobs.Where(row => row.Id == run.Id && row.LeaseId == leaseId &&
                     row.FetchStatus == DatabaseFetchStatus.Fetching && row.LeaseExpiresUtc > DateTime.UtcNow)
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(row => row.FetchStatus, DatabaseFetchStatus.Completed)
@@ -91,7 +91,7 @@ public sealed class DatabaseFetchWorker(
             logger.LogError(ex, "Database fetch failed for run {RunId}; it will be retried.", run.Id);
             // Delay successive retries by 1, 2, 4, ... minutes, capped at 64 minutes.
             TimeSpan retryDelay = TimeSpan.FromMinutes(Math.Pow(2, Math.Min(run.FetchAttempts, 6)));
-            await db.Runs.Where(row => row.Id == run.Id && row.LeaseId == leaseId && row.FetchStatus == DatabaseFetchStatus.Fetching)
+            await db.Jobs.Where(row => row.Id == run.Id && row.LeaseId == leaseId && row.FetchStatus == DatabaseFetchStatus.Fetching)
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(row => row.FetchStatus, DatabaseFetchStatus.Pending)
                     .SetProperty(row => row.FetchError, "Database fetch failed; see server logs.")
@@ -107,7 +107,7 @@ public sealed class DatabaseFetchWorker(
     }
 
     /// <summary>Finds due pending fetches and abandoned fetches whose leases have expired.</summary>
-    private static IQueryable<AcceptanceRunEntity> ReadyToFetch(IQueryable<AcceptanceRunEntity> runs, DateTime now) =>
+    private static IQueryable<AcceptanceJobEntity> ReadyToFetch(IQueryable<AcceptanceJobEntity> runs, DateTime now) =>
         runs.Where(row => (row.FetchStatus == DatabaseFetchStatus.Pending && (row.NextAttemptUtc == null || row.NextAttemptUtc <= now)) ||
             (row.FetchStatus == DatabaseFetchStatus.Fetching && row.LeaseExpiresUtc <= now));
 
@@ -121,7 +121,7 @@ public sealed class DatabaseFetchWorker(
                 using IServiceScope scope = scopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
                 DateTime now = DateTime.UtcNow;
-                int renewed = await db.Runs.Where(row => row.Id == runId && row.LeaseId == leaseId &&
+                int renewed = await db.Jobs.Where(row => row.Id == runId && row.LeaseId == leaseId &&
                         row.FetchStatus == DatabaseFetchStatus.Fetching && row.LeaseExpiresUtc > now)
                     .ExecuteUpdateAsync(setters => setters.SetProperty(row => row.LeaseExpiresUtc, now + LeaseDuration), cancellation.Token);
                 if (renewed == 0)
