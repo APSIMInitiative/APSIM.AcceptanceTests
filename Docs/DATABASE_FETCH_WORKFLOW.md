@@ -5,6 +5,21 @@ from Azure Blob Storage. It is separate from the API's own SQLite database:
 SQLite stores pull request, run, job and fetch state; the downloaded `.db`
 files are retained as files on disk.
 
+## Entity hierarchy
+
+```text
+Pull request + commit (PullRequestEntity)
+  |-- Run 1 / job (AcceptanceJobEntity)
+  |     |-- Task: Wheat path (AcceptanceTaskEntity)
+  |     `-- Task: Barley path (AcceptanceTaskEntity)
+  `-- Run 2 / job (AcceptanceJobEntity)
+        |-- Task: Wheat path (AcceptanceTaskEntity)
+        `-- Task: Barley path (AcceptanceTaskEntity)
+```
+
+Each run is a separate attempt for the same pull request and commit. The API
+calls each task path a job path in its requests.
+
 ## End-to-end sequence
 
 1. **Register the pull request.** `GET /api/pr/open` creates a pull request
@@ -53,7 +68,7 @@ Examples of the request bodies and deployment settings are in the
 | [`Program`](../AcceptanceTestsWebAPI/Program.cs) | Maps the pull request lifecycle and fetch-status HTTP endpoints. |
 | [`PullRequestEndpoints`](../AcceptanceTestsWebAPI/Requests/PullRequestEndpoints.cs) | Validates requests, creates runs and jobs, records idempotent job completion, and exposes fetch status. The job-completion update and count increment are transactional. |
 | [`PullRequestEntity`](../AcceptanceTestsWebAPI/Data/PullRequestEntity.cs) | Stores the pull request's current run ID, status, start time and job counts. |
-| [`AcceptanceRunEntity`, `AcceptanceJobEntity` and `DatabaseFetchStatus`](../AcceptanceTestsWebAPI/Data/AcceptanceRunEntity.cs) | Store each run's container and durable fetch state, and track each job path's completion. A separate run record distinguishes reruns. |
+| [`AcceptanceJobEntity`](../AcceptanceTestsWebAPI/Data/AcceptanceJobEntity.cs), [`AcceptanceTaskEntity`](../AcceptanceTestsWebAPI/Data/AcceptanceTaskEntity.cs) and [`DatabaseFetchStatus`](../AcceptanceTestsWebAPI/Data/DatabaseFetchStatus.cs) | Store each run's container and durable fetch state, and track each job path's completion. A separate run record distinguishes reruns. |
 | [`AcceptanceTestsDbContext`](../AcceptanceTestsWebAPI/Data/AcceptanceTestsDbContext.cs) | Persists pull requests, runs and jobs in SQLite; enforces uniqueness of a container per pull request record and a job path per run. |
 | [`DatabaseManager`](../AcceptanceTestsWebAPI/Data/DatabaseManager.cs) | Polls running pull requests, closes completed runs and queues downloads, or marks incomplete runs as timed out. |
 | [`DatabaseFetchWorker`](../AcceptanceTestsWebAPI/Services/DatabaseFetchWorker.cs) | Polls the durable queue, claims and renews leases, calls the fetcher, and records success or schedules retries. |
