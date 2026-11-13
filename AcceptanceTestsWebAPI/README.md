@@ -4,6 +4,9 @@ A modern ASP.NET Core minimal Web API for managing APSIM AcceptanceTestss with J
 
 ## Fetching acceptance-test databases
 
+For an explanation of the fetch sequence and class responsibilities, see the
+[database fetch workflow](../Docs/DATABASE_FETCH_WORKFLOW.md).
+
 AVA pulls databases from the Azure Blob Storage container belonging to a run.
 Configure `DatabaseFetch:StorageAccountUri` with the HTTPS URI of the storage
 account, and `DatabaseFetch:Directory` with a directory on persistent storage.
