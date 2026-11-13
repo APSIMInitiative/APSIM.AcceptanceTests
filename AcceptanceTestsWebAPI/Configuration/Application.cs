@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceTestsWebAPI.Configuration;
 
+/// <summary>Builds the API application, applies migrations and configures its HTTP pipeline.</summary>
 public class Application
 {
     public static WebApplication CreateApplication(WebApplicationBuilder builder)

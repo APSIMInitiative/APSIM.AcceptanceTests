@@ -5,9 +5,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using AcceptanceTestsWebAPI.Data;
+using AcceptanceTestsWebAPI.Services;
 
 namespace AcceptanceTestsWebAPI.Configuration;
 
+/// <summary>Registers API services, persistence, background workers and rate-limiting policies.</summary>
 public class Builder
 {
     public static WebApplicationBuilder CreateBuilder(string[] args)
@@ -57,28 +59,17 @@ public class Builder
         builder.Services.AddProblemDetails();
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddHostedService<DatabaseManager>();
+        builder.Services.Configure<DatabaseFetchOptions>(builder.Configuration.GetSection("DatabaseFetch"));
+        builder.Services.AddSingleton<IBlobContainerProvider, AzureBlobContainerProvider>();
+        builder.Services.AddSingleton<IDatabaseBlobFetcher, DatabaseBlobFetcher>();
+        builder.Services.AddHostedService<DatabaseFetchWorker>();
         builder.Services.AddSwaggerGen(options =>
         {
             options.SwaggerDoc("v1", new OpenApiInfo
             {
                 Version = "v1",
                 Title = "APSIM AcceptanceTests API",
-                Description = "API for managing users and organisations in the APSIM AcceptanceTests System."
-            });
-
-            options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-            {
-                Name = "Authorization",
-                Type = SecuritySchemeType.Http,
-                Scheme = "bearer",
-                BearerFormat = "JWT",
-                In = ParameterLocation.Header,
-                Description = "Enter a valid JWT bearer token."
-            });
-
-            options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
-            {
-                [new OpenApiSecuritySchemeReference("Bearer", hostDocument: document, externalResource: null)] = new List<string>()
+                Description = "API for tracking acceptance-test job attempts, task completion and database downloads."
             });
         });
 

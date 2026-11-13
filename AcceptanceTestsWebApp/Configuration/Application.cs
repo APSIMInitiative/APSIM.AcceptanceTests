@@ -2,6 +2,7 @@ using AcceptanceTestsWebApp.Components;
 
 namespace AcceptanceTestsWebApp.Configuration;
 
+/// <summary>Builds the web application and configures its HTTP and Razor component pipeline.</summary>
 public class Application
 {
     public static WebApplication CreateApplication(WebApplicationBuilder builder)
@@ -10,9 +11,6 @@ public class Application
 
         app.UseForwardedHeaders();
         app.UseSession();
-
-        // Force service construction on startup so WebApiUtility configuration is initialized.
-        //_ = app.Services.GetRequiredService<WebApiUtility>();
 
         // Configure the HTTP request pipeline.
         if (!app.Environment.IsDevelopment())

@@ -25,6 +25,7 @@ app.MapPost("/api/pr/start", PullRequestEndpoints.Start)
     .AllowAnonymous()
     .Produces(StatusCodes.Status200OK)
     .Produces(StatusCodes.Status400BadRequest)
+    .Produces(StatusCodes.Status409Conflict)
     .Produces(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status500InternalServerError);
 
@@ -32,6 +33,14 @@ app.MapPost("/api/pr/jobcomplete", PullRequestEndpoints.JobComplete)
     .AllowAnonymous()
     .Produces(StatusCodes.Status200OK)
     .Produces(StatusCodes.Status400BadRequest)
+    .Produces(StatusCodes.Status409Conflict)
+    .Produces(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+app.MapGet("/api/pr/fetch", PullRequestEndpoints.GetDatabaseFetch)
+    .AllowAnonymous()
+    .WithSummary("Get database fetch status for a pull request run")
+    .Produces<PullRequestEndpoints.DatabaseFetchResponse>(StatusCodes.Status200OK)
     .Produces(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status500InternalServerError);
 
@@ -65,7 +74,6 @@ app.MapGet("/api/test/deleteall", PullRequestEndpoints.DeleteAll)
 
 app.Run();
 
-/// <summary>Marker type used by WebApplicationFactory to locate the AcceptanceTestsWebAPI entry point.</summary>
 //public class AcceptanceTestsWebApiMarker { }
 
 /*
