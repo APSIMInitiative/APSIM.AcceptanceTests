@@ -28,6 +28,7 @@ target framework.
 - Use four spaces for indentation, braces on their own lines, and file-scoped
   namespaces. Keep one primary type per file and name the file after that type,
   following the surrounding project structure.
+- Namespaces must follow the solutions folder structure. 
 - Use `PascalCase` for types, methods, properties, and constants;
   `camelCase` for parameters and local variables; and prefix interfaces with
   `I`.
