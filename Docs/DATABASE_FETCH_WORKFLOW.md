@@ -2,13 +2,13 @@
 
 This document describes how the API retrieves acceptance-test output databases
 from Azure Blob Storage. It is separate from the API's own SQLite database:
-SQLite stores pull request, run, job and fetch state; the downloaded `.db`
+SQLite stores pull request attempts, task and fetch state; the downloaded `.db`
 files are retained as files on disk.
 
 ## Entity hierarchy
 
 ```text
-Pull request + commit (PullRequestEntity)
+Pull request + commit
   |-- Run 1 / job (AcceptanceJobEntity)
   |     |-- Task: Wheat path (AcceptanceTaskEntity)
   |     `-- Task: Barley path (AcceptanceTaskEntity)
@@ -17,8 +17,12 @@ Pull request + commit (PullRequestEntity)
         `-- Task: Barley path (AcceptanceTaskEntity)
 ```
 
-Each run is a separate attempt for the same pull request and commit. The API
-calls each task path a job path in its requests.
+Each run is a separate job attempt for the same pull request and commit. Each
+task is identified by its path, called a job path by the API. Each attempt has
+its own job ID and fetch state, and a container once started. Attempts are
+grouped by pull request and commit. The pull request get and list endpoints
+show only the current attempt; the fetch endpoint can inspect earlier attempts
+by container name.
 
 ## End-to-end sequence
 
@@ -27,23 +31,27 @@ calls each task path a job path in its requests.
    record before a run can start.
 2. **Start a run.** `POST /api/pr/start` supplies the pull request, commit,
    exact Azure container name and a non-empty list of distinct job paths.
-   `PullRequestEndpoints.Start` validates the request, creates a run and a
-   job record for each path, and sets the pull request to `Running`. The
-   run starts in `WaitingForJobs`. A container name cannot be reused for a
-   run of the same pull request and commit.
-3. **Upload and report each job.** The external job runner uploads its output
+   `PullRequestEndpoints.Start` validates the request, starts the existing
+   created job on the first run, or creates a new current job for a rerun.
+   It records a task for each path and sets the job to `Running`. The job's
+   fetch state starts in `WaitingForJobs`. A container name cannot be reused
+   for a run of the same pull request and commit; a running job cannot be
+   started again.
+3. **Upload and report each task.** The external runner uploads its output
    to Azure, then calls `POST /api/pr/jobcomplete` with the same pull request,
-   commit and container name, plus the job path and result data. Each distinct
-   job increments the completed count once. Repeating a completed job's
+   commit and container name, plus the task path and result data. Each distinct
+   task increments the completed count once. Repeating a completed task's
    notification is safe while that run is still current; unknown paths and
-   notifications for a superseded run are rejected. A job may produce no
+   notifications for a superseded run are rejected. A task may produce no
    database, but must report completion only after all of its uploads finish.
+   The endpoint requires at least one non-empty `data` item, but does not
+   persist `data` or `time`.
 4. **Queue the fetch.** Every 15 seconds, `DatabaseManager` checks running
-   pull requests. When all jobs have reported completion, it closes the API's
-   pull request record and changes the run to `Pending` in one SQLite
-   transaction. This does not close the GitHub pull request. If jobs have not
-   completed within 30 minutes of the run's start, the manager marks the
-   run `TimedOut` instead and does not queue a fetch.
+   jobs. When all tasks have reported completion, it closes the API's job
+   record and changes the fetch state to `Pending` in one atomic SQLite
+   update. This does not close the GitHub pull request. If the manager finds
+   a job still incomplete more than 30 minutes after its start, it marks the
+   job `Timeout` and its fetch state `TimedOut` instead of queuing a fetch.
 5. **Claim and download.** `DatabaseFetchWorker` looks for due pending runs
    and abandoned, expired leases. It claims one run, sets it to `Fetching`,
    and calls `DatabaseBlobFetcher` with the run ID and container name. The
@@ -56,31 +64,31 @@ calls each task path a job path in its requests.
    `GET /api/pr/fetch?pullRequest=123&commit=a1b2c3d&containerName=...` to
    inspect the run ID, status, attempts, downloaded count and latest error.
 
-The fetcher lists the container rather than using the job paths to construct
-blob names. Outputs must not be modified after a job reports completion.
+The fetcher lists the container rather than using task paths to construct
+blob names. Outputs must not be modified after a task reports completion.
 Examples of the request bodies and deployment settings are in the
-[API README](../AcceptanceTestsWebAPI/README.md#fetching-acceptance-test-databases).
+[API README](../AcceptanceTestsWebAPI/README.md).
 
 ## Responsibilities
 
 | Class or component | Role |
 | --- | --- |
 | [`Program`](../AcceptanceTestsWebAPI/Program.cs) | Maps the pull request lifecycle and fetch-status HTTP endpoints. |
-| [`PullRequestEndpoints`](../AcceptanceTestsWebAPI/Requests/PullRequestEndpoints.cs) | Validates requests, creates runs and jobs, records idempotent job completion, and exposes fetch status. The job-completion update and count increment are transactional. |
-| [`PullRequestEntity`](../AcceptanceTestsWebAPI/Data/PullRequestEntity.cs) | Stores the pull request's current run ID, status, start time and job counts. |
-| [`AcceptanceJobEntity`](../AcceptanceTestsWebAPI/Data/AcceptanceJobEntity.cs), [`AcceptanceTaskEntity`](../AcceptanceTestsWebAPI/Data/AcceptanceTaskEntity.cs) and [`DatabaseFetchStatus`](../AcceptanceTestsWebAPI/Data/DatabaseFetchStatus.cs) | Store each run's container and durable fetch state, and track each job path's completion. A separate run record distinguishes reruns. |
-| [`AcceptanceTestsDbContext`](../AcceptanceTestsWebAPI/Data/AcceptanceTestsDbContext.cs) | Persists pull requests, runs and jobs in SQLite; enforces uniqueness of a container per pull request record and a job path per run. |
+| [`PullRequestEndpoints`](../AcceptanceTestsWebAPI/Requests/PullRequestEndpoints.cs) | Validates requests, starts jobs, creates tasks, records idempotent task completion, and exposes fetch status. The task update and count increment are transactional. |
+| [`AcceptanceJobEntity`](../AcceptanceTestsWebAPI/Data/AcceptanceJobEntity.cs) | Stores one attempt's PR metadata, execution status, counts, container and durable fetch state. |
+| [`AcceptanceTaskEntity`](../AcceptanceTestsWebAPI/Data/AcceptanceTaskEntity.cs) and [`DatabaseFetchStatus`](../AcceptanceTestsWebAPI/Data/DatabaseFetchStatus.cs) | Track each task path's completion and the attempt's fetch state. |
+| [`AcceptanceTestsDbContext`](../AcceptanceTestsWebAPI/Data/AcceptanceTestsDbContext.cs) | Persists attempts and tasks in SQLite; enforces one current attempt, unique containers per PR and commit, and unique task paths per attempt. |
 | [`DatabaseManager`](../AcceptanceTestsWebAPI/Data/DatabaseManager.cs) | Polls running pull requests, closes completed runs and queues downloads, or marks incomplete runs as timed out. |
 | [`DatabaseFetchWorker`](../AcceptanceTestsWebAPI/Services/DatabaseFetchWorker.cs) | Polls the durable queue, claims and renews leases, calls the fetcher, and records success or schedules retries. |
-| [`IDatabaseBlobFetcher` and `DatabaseBlobFetcher`](../AcceptanceTestsWebAPI/Services/DatabaseBlobFetcher.cs) | Define and implement downloading the database files for one run. |
-| [`IBlobContainerProvider` and `AzureBlobContainerProvider`](../AcceptanceTestsWebAPI/Services/DatabaseBlobFetcher.cs) | Obtain a container client for the configured Azure account using `DefaultAzureCredential`. |
-| [`DatabaseFetchOptions`](../AcceptanceTestsWebAPI/Services/DatabaseBlobFetcher.cs) | Holds the storage account URI and local download directory. |
+| [`IDatabaseBlobFetcher`](../AcceptanceTestsWebAPI/Services/IDatabaseBlobFetcher.cs) and [`DatabaseBlobFetcher`](../AcceptanceTestsWebAPI/Services/DatabaseBlobFetcher.cs) | Define and implement downloading the database files for one run. |
+| [`IBlobContainerProvider`](../AcceptanceTestsWebAPI/Services/IBlobContainerProvider.cs) and [`AzureBlobContainerProvider`](../AcceptanceTestsWebAPI/Services/AzureBlobContainerProvider.cs) | Obtain a container client for the configured Azure account using `DefaultAzureCredential`. |
+| [`DatabaseFetchOptions`](../AcceptanceTestsWebAPI/Services/DatabaseFetchOptions.cs) | Holds the storage account URI and local download directory. |
 | [`Builder`](../AcceptanceTestsWebAPI/Configuration/Builder.cs) and [`Application`](../AcceptanceTestsWebAPI/Configuration/Application.cs) | Register the services and SQLite context, and apply EF Core migrations at startup except in the `Testing` environment. |
 
 ## State, leases and retries
 
 ```text
-WaitingForJobs --all jobs complete--> Pending --claimed--> Fetching --success--> Completed
+WaitingForJobs --all tasks complete--> Pending --claimed--> Fetching --success--> Completed
        |                                ^                    |
        |                                +------failure-------+
        +--run timeout--> TimedOut
@@ -125,3 +133,9 @@ exception details.
 
 Use persistent storage for both the SQLite database and the download directory.
 Run one API instance unless both are shared with reliable locking.
+
+## Database baseline
+
+The migration history starts with a fresh baseline and cannot upgrade an
+existing database. Stop older API instances, back up any data you need, and
+configure a new, empty SQLite database before deploying this version.

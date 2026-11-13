@@ -12,9 +12,6 @@ public class Application
         app.UseForwardedHeaders();
         app.UseSession();
 
-        // Force service construction on startup so WebApiUtility configuration is initialized.
-        //_ = app.Services.GetRequiredService<WebApiUtility>();
-
         // Configure the HTTP request pipeline.
         if (!app.Environment.IsDevelopment())
         {

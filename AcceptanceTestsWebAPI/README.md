@@ -1,602 +1,124 @@
 # AcceptanceTestsWebAPI
 
-A modern ASP.NET Core minimal Web API for managing APSIM AcceptanceTestss with JWT-based authentication and SQLite persistence.
+ASP.NET Core API for tracking acceptance-test job attempts, task completion,
+and downloading SQLite database outputs from Azure Blob Storage.
 
-## Fetching acceptance-test databases
+## Run locally
 
-For an explanation of the fetch sequence and class responsibilities, see the
-[database fetch workflow](../Docs/DATABASE_FETCH_WORKFLOW.md).
+With the .NET 10 SDK installed, run from the repository root:
 
-AVA pulls databases from the Azure Blob Storage container belonging to a run.
-Configure `DatabaseFetch:StorageAccountUri` with the HTTPS URI of the storage
-account, and `DatabaseFetch:Directory` with a directory on persistent storage.
-Both settings are in `appsettings.json` and `appsettings.Development.json` and
-can be overridden using `DatabaseFetch__StorageAccountUri` and
-`DatabaseFetch__Directory` environment variables. Relative directory paths are
-resolved against the API content root. The default directory is
-`FetchedDatabases`; mount it on persistent storage when running in a container.
-The SQLite database also needs persistent storage.
+```powershell
+dotnet run --project AcceptanceTestsWebAPI\AcceptanceTestsWebAPI.csproj
+```
 
-The API uses `DefaultAzureCredential`: configure a managed identity in Azure or
-an appropriate developer credential locally. Grant it permission to list and
-read blobs in the run containers (for example, Storage Blob Data Reader). The
-account URI must not contain credentials. No storage credentials belong in the
-settings files.
+Use the URL printed at startup. Swagger UI is available at `/swagger` in the
+Development environment only. The API loads environment variables from `.env`
+at startup as well as the usual ASP.NET Core configuration sources.
 
-### Run and completion requests
+## Security
 
-Add the **exact**, unique Azure container name to each `/api/pr/start` request:
+**The active endpoints are anonymous; authentication and authorization are not
+enabled.** The destructive test endpoints use a hard-coded placeholder token,
+not real authentication, and use GET requests. Do not expose this API to
+untrusted networks without appropriate access controls.
 
-```json
+The global rate limiter allows 300 requests per minute per client IP.
+
+## API endpoints
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| GET | `/api` | API status |
+| GET | `/api/health` | Health response |
+| GET | `/api/pr/open` | Create the initial job record; query: `pullRequest`, `commit`, `author` |
+| POST | `/api/pr/start` | Start the initial job or a new attempt |
+| POST | `/api/pr/jobcomplete` | Record completion of a task path |
+| GET | `/api/pr/get` | Get the current job; query: `pullRequest`, `commit` |
+| GET | `/api/pr/list` | List current jobs |
+| GET | `/api/pr/fetch` | Get an attempt's fetch status; query: `pullRequest`, `commit`, `containerName` |
+| GET | `/api/test/delete` | Delete all attempts for a PR and commit; query: `token`, `pullRequest`, `commit` |
+| GET | `/api/test/deleteall` | Delete all job records; query: `token` |
+
+Deleting records also deletes their task records; it does not delete downloaded
+files or Azure containers.
+
+Open a PR and commit before starting its first job. A start request requires a
+non-empty list of distinct paths and a valid Azure container name. A rerun
+requires a different container name for that PR and commit:
+
+```http
+POST /api/pr/start
+Content-Type: application/json
+
 {
   "pullRequest": "123",
   "commit": "a1b2c3d",
-  "containerName": "2026-11-12-acceptance-tests-pr-123-storage",
-  "paths": ["Tests/Wheat.apsimx", "Tests/Barley.apsimx"]
+  "paths": ["Tests/Wheat.apsimx", "Tests/Barley.apsimx"],
+  "containerName": "acceptance-pr-123-attempt-1"
 }
 ```
 
-Paths must be non-empty and distinct within a run. Reusing a container for the
-same pull request and commit is rejected. Each `/api/pr/jobcomplete` request
-must identify the same container and one of those paths:
+Once a task's outputs have been uploaded, report its completion:
 
-```json
+```http
+POST /api/pr/jobcomplete
+Content-Type: application/json
+
 {
   "pullRequest": "123",
   "commit": "a1b2c3d",
-  "containerName": "2026-11-12-acceptance-tests-pr-123-storage",
   "path": "Tests/Wheat.apsimx",
   "time": 12.5,
-  "data": ["passed"]
+  "data": ["passed"],
+  "containerName": "acceptance-pr-123-attempt-1"
 }
 ```
 
-Send a completion notification only after the job's output uploads have
-succeeded, and do not modify those outputs afterwards. A job need not produce
-a database. Repeated notifications for a completed job are safe; notifications
-for an old run or an unknown path are rejected. The existing API-wide rate
-limit is 300 requests per minute per client IP; callers should retry HTTP 429
-responses using the `Retry-After` header, particularly when nodes share an IP.
+`data` must contain at least one non-empty item; neither `data` nor `time` is
+persisted. Duplicate completion notifications are idempotent while the
+attempt remains current. Notifications for a superseded attempt are rejected.
 
-Once every distinct job has reported completion, the background service closes
-the pull request and queues a fetch. A worker lists all blobs under `databases/`
-and downloads `.db` files sequentially to
-`<DatabaseFetch:Directory>/<run-id>/<relative-blob-path>`. It preserves nested
-paths and retains files for future processing; no statistics are calculated.
-An empty listing is a successful fetch.
+For the state transitions, retries and polling example, see
+[Database fetch workflow](../Docs/DATABASE_FETCH_WORKFLOW.md).
 
-Use `GET /api/pr/fetch?pullRequest=123&commit=a1b2c3d&containerName=...`
-to check the run ID, status, attempts, downloaded count and latest error.
-Statuses are `WaitingForJobs`, `Pending`, `Fetching`, `Completed`, and
-`TimedOut`. Failures are logged and retried with increasing delays (up to
-64 minutes); a lease permits interrupted fetches to be reclaimed. A retry
-lists the container and downloads its files again. A timeout does not queue a
-fetch. The existing 30-minute run timeout is measured from each start request.
-Run one AVA instance unless its SQLite database and download directory are
-shared with reliable locking.
+## Database downloads
 
-This changes both request contracts: update the callers before starting new
-runs. Runs already in progress before this migration lack container and job
-identities and cannot be fetched safely; drain them before deployment or
-handle them separately.
+Set `DatabaseFetch:StorageAccountUri` to the HTTPS URI of the Azure storage
+account and `DatabaseFetch:Directory` to a directory on persistent storage.
+Environment variables `DatabaseFetch__StorageAccountUri` and
+`DatabaseFetch__Directory` can override these settings. The configured default
+download directory is `FetchedDatabases`, relative to the API content root.
+Mount it on persistent storage when running in a container.
 
-## Overview
+The worker uses `DefaultAzureCredential`; its identity needs permission to list
+and read blobs. Once all tasks complete, it downloads `.db` blobs from the
+`databases/` prefix to `<download directory>/<job ID>/<path under databases/>`.
+An empty listing succeeds with zero files. Failed downloads are retried; fetch
+status and errors are available from `/api/pr/fetch`.
 
-This API provides a complete AcceptanceTests management system supporting:
+## SQLite and migrations
 
-- **General Use AcceptanceTestss**: Basic AcceptanceTestss with user contact information
-- **Special Use AcceptanceTestss**: Enhanced AcceptanceTestss with organization details and licensing
-- **Download Tracking**: Audit trail for APSIM downloads and access events
-- **JWT Authentication**: Secure token-based API access
+`ConnectionStrings:AcceptanceTestsDb` configures the SQLite connection; the
+default file is `APSIMAcceptanceTestsSystemWebAPI.db`. Migrations are applied
+at startup except in the `Testing` environment.
 
-All endpoints (except `/health` and `/api/auth/token`) require JWT bearer token authentication.
+**The current migration is a fresh baseline, not an upgrade from the previous
+schema.** Back up any existing database and use a new empty database or reset it
+before starting this version. Resetting removes the previous data.
 
-## Technology Stack
+After future EF Core model changes, create a migration from the API project
+directory. The Windows script `update-ef-migration.bat` prompts for a name,
+adds the migration **and updates the configured database**; review the target
+database before running it.
 
-- **.NET 10.0** - Latest .NET runtime
-- **ASP.NET Core Minimal APIs** - Lightweight API endpoints without controllers
-- **Entity Framework Core 10.0.5** - ORM with SQLite provider
-- **JWT Bearer Authentication** - Token-based security
-- **Swagger/OpenAPI** - Interactive API documentation
-- **SQLite** - File-based relational database
+## Docker
 
-## Getting Started
+Build from the repository root and map a host port to container port 80:
 
-### Prerequisites
-
-- .NET SDK 10.0 (matching solution)
-- Git
-
-### Installation
-
-From the repository root:
-
-```bash
-# Restore all dependencies
-dotnet restore
-
-# Build the solution
-dotnet build
+```powershell
+docker build -f AcceptanceTestsWebAPI\Dockerfile -t apsim-acceptance-api .
+docker run -p 8080:80 apsim-acceptance-api
 ```
 
-## Running the API
-
-### From Command Line
-
-```bash
-dotnet run --project AcceptanceTestsWebAPI/AcceptanceTestsWebAPI.csproj
-```
-
-The API will start on `https://localhost:7276` (HTTPS) and `http://localhost:5276` (HTTP).
-
-### Using VS Code Task
-
-1. Open VS Code in the repository
-2. Select **Terminal** > **Run Task...**
-3. Choose **Build WebApi**
-
-### Docker
-
-```bash
-docker build -f AcceptanceTestsWebAPI/Dockerfile -t apsim-AcceptanceTests-webapi .
-docker run -p 7276:7276 apsim-AcceptanceTests-webapi
-```
-
-## Project Structure
-
-### Hierarchy Diagram
-
-```
-AcceptanceTestsWebAPI/
-├── Data/                           (Entity Framework Core)
-│   ├── AcceptanceTestsDbContext.cs   - EF Core DbContext
-│   ├── UserEntity.cs              - User database entity
-│   ├── OrganisationEntity.cs      - Organisation database entity
-│   └── DownloadAuditEntity.cs     - Download audit trail entity
-│
-├── Models/                         (Request/Response DTOs)
-│   ├── AuthTokenRequest.cs        - Login request model
-│   ├── AuthTokenResponse.cs       - JWT token response model
-│   ├── AcceptanceTestsErrorResponse.cs - Error response wrapper
-│   ├── DownloadEventRequest.cs    - Download tracking request
-│   ├── DownloadAuditResponse.cs   - Download audit response
-│   ├── MemberOrganisationResponse.cs - Organisation response
-│   ├── BulkDeleteAcceptanceTestssRequest.cs - Bulk delete request
-│   └── AcceptanceTestsType.cs        - AcceptanceTests type enum
-│
-├── Migrations/                     (EF Core Database Migrations)
-│   ├── 20260526014802_InitialMigration.cs
-│   └── 20260527223413_AddDownloadAudits.cs
-│
-├── Utilities/                      (Helper Classes)
-│   └── MailUtility.cs             - Email utility functions
-│
-├── Program.cs                      (API Startup & Configuration)
-├── appsettings.json               (Configuration)
-├── appsettings.Development.json   (Development overrides)
-├── Dockerfile                      (Container configuration)
-└── AcceptanceTestsWebAPI.csproj      (Project file)
-└── update-ef-migration.bat        (Database migration script)
-```
-
-## Database Migrations
-
-When modifying any database entity classes in the `Data/` folder (UserEntity, OrganisationEntity, DownloadAuditEntity, etc.), you must generate a new Entity Framework Core migration.
-
-### Running Migrations
-
-Execute the batch file from the AcceptanceTestsWebAPI directory:
-
-```bash
-cd AcceptanceTestsWebAPI
-update-ef-migration.bat
-```
-
-This script will:
-1. Create a new migration file in the `Migrations/` folder
-2. Update the database context snapshot
-
-**Important**: Commit both the new migration file and any changes to the snapshot file to version control.
-
-### Manual Alternative
-
-If the batch file is unavailable, run:
-
-```bash
-dotnet ef migrations add <MigrationName>
-```
-
-## API Documentation
-
-Once the API is running, browse to:
-
-- **Swagger UI**: https://localhost:7276/swagger/index.html
-- **OpenAPI Spec**: https://localhost:7276/swagger/v1/swagger.json
-
-## API Endpoints
-
-### Core Endpoints
-
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| POST | `/api/auth/token` | Generate JWT authentication token | ❌ |
-| GET | `/health` | API health check | ❌ |
-| GET/POST | `/api/AcceptanceTestss` | List or create AcceptanceTestss | ✅ |
-| GET | `/api/AcceptanceTestss/{id}` | Get AcceptanceTests by ID | ✅ |
-| GET/POST | `/api/users` | User management | ✅ |
-| GET/POST | `/api/organisations` | Organisation management | ✅ |
-| POST | `/api/downloads/events` | Track download events | ✅ |
-| GET | `/api/downloads/audits` | Get download audit trail | ✅ |
-
-### Authentication
-
-**Generate JWT Token**
-
-```http
-POST /api/auth/token
-Content-Type: application/json
-
-{
-  "username": "admin",
-  "password": "secure-password"
-}
-```
-
-Response:
-```json
-{
-  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "expiresAtUtc": "2026-06-23T16:30:00Z"
-}
-```
-
-### Health Check
-
-**Get API Status** (No authentication required)
-
-```http
-GET /health
-```
-
-Response:
-```json
-{
-  "status": "ok"
-}
-```
-
-### AcceptanceTestss (Requires Authentication)
-
-**All requests must include:**
-```http
-Authorization: Bearer <accessToken>
-```
-
-**List AcceptanceTestss**
-
-```http
-GET /api/AcceptanceTestss?AcceptanceTestsType=GeneralUse&licenceStatus=Active
-```
-
-Response:
-```json
-[
-  {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "AcceptanceTestsType": "GeneralUse",
-    "contactName": "John Doe",
-    "contactEmail": "john@example.com",
-    "applicationDate": "2026-03-20T10:30:00Z",
-    "licenceStatus": "Active"
-  }
-]
-```
-
-**Get AcceptanceTests by ID**
-
-```http
-GET /api/AcceptanceTestss/{id}
-```
-}
-```
-
-**Errors**:
-
-- `404 Not Found` - AcceptanceTests not found
-
----
-
-#### 5. Create AcceptanceTests
-
-```text
-POST /api/AcceptanceTestss
-Content-Type: application/json
-
-{
-  "AcceptanceTestsType": "GeneralUse",
-  "contactName": "Jane Smith",
-  "contactEmail": "jane@example.com"
-}
-```
-
-**General Use AcceptanceTests** (minimal):
-
-```json
-{
-  "AcceptanceTestsType": "GeneralUse",
-  "contactName": "Jane Smith",
-  "contactEmail": "jane@example.com"
-}
-```
-
-**Special Use AcceptanceTests** (required fields):
-
-```json
-{
-  "AcceptanceTestsType": "SpecialUse",
-  "contactName": "Jane Smith",
-  "contactEmail": "jane@example.com",
-  "organisationName": "ACME Corp",
-  "organisationAddress": "123 Main St",
-  "licencePathway": "TypeOne",
-  "annualTurnover": "BelowTwoMillion"
-}
-```
-
-**Response (201 Created)**:
-
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440001",
-  "AcceptanceTestsType": "GeneralUse",
-  "contactName": "Jane Smith",
-  "contactEmail": "jane@example.com",
-  "applicationDate": "2026-03-25T12:00:00Z",
-  "licenceStatus": "GeneralUse"
-}
-```
-
-**Location Header**:
-
-```text
-Location: /api/AcceptanceTestss/550e8400-e29b-41d4-a716-446655440001
-```
-
-**Errors**:
-
-- `400 Bad Request` - Validation failed
-
----
-
-#### 6. Update AcceptanceTests
-
-```text
-PUT /api/AcceptanceTestss/{id}
-Content-Type: application/json
-
-{
-  "AcceptanceTestsType": "GeneralUse",
-  "contactName": "Jane Smith Updated",
-  "contactEmail": "jane-new@example.com"
-}
-```
-
-**Response (200 OK)**:
-
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440001",
-  "AcceptanceTestsType": "GeneralUse",
-  "contactName": "Jane Smith Updated",
-  "contactEmail": "jane-new@example.com",
-  "applicationDate": "2026-03-25T12:00:00Z",
-  "licenceStatus": "GeneralUse"
-}
-```
-
-**Errors**:
-
-- `404 Not Found` - AcceptanceTests not found
-- `400 Bad Request` - Validation failed
-
----
-
-#### 7. Delete AcceptanceTests
-
-```text
-DELETE /api/AcceptanceTestss/{id}
-```
-
-**Response (204 No Content)**:
-
-```text
-(empty body)
-```
-
-**Errors**:
-
-- `404 Not Found` - AcceptanceTests not found
-
----
-
-## Data Models
-
-### AcceptanceTests Types
-
-#### GeneralUse
-
-- `contactName` (required) - Name of the contact person
-- `contactEmail` (required) - Email address of the contact
-- Status auto-set to `GeneralUse`
-
-#### SpecialUse
-
-All of the above, plus:
-
-- `organisationName` (required) - Organization name
-- `organisationAddress` (required) - Organization address
-- `organisationWebsite` (optional) - Organization website
-- `contactPhone` (optional) - Contact phone number
-- `licencePathway` (required) - `TypeOne` or `TypeTwo`
-- `annualTurnover` (required) - See enum values below
-- Status auto-set to `SpecialAwaitingReview`
-
-### Enums
-
-#### LicencePathway
-
-- `TypeOne` - Modifications shared back
-- `TypeTwo` - Modifications private
-
-#### AnnualTurnover
-
-- `BelowTwoMillion` - Less than $2M AUD
-- `TwoToFortyMillion` - $2M - $40M AUD
-- `AboveFortyMillion` - Over $40M AUD
-
-#### LicenceStatus
-
-- `None` - No licence
-- `GeneralUse` - General use licence
-- `SpecialAwaitingReview` - Special use pending review
-- `SpecialProvisional` - Special use provisional
-- `SpecialInvoiced` - Special use invoiced
-- `SpecialActive` - Special use active
-- `SpecialDeclined` - Special use declined
-- `Cancelled` - AcceptanceTests cancelled
-- `Expired` - AcceptanceTests expired
-
-## Configuration
-
-### Environment Variables (.env file)
-
-| Variable | Purpose | Example |
-| ---------- | --------- | --------- |
-| `AUTH_USERNAME` | API authentication username | `your-username` |
-| `AUTH_PASSWORD` | API authentication password | `your-secure-password` |
-| `JWT_ISSUER` | JWT issuer claim | `APSIM.AcceptanceTestsAPIV2` |
-| `JWT_AUDIENCE` | JWT audience claim | `APSIM.AcceptanceTestsAPIV2.Client` |
-| `JWT_SIGNING_KEY` | Secret key for signing JWT tokens (min 32 chars) | `your-secret-key-...` |
-| `JWT_TOKEN_EXPIRY_MINUTES` | Token expiration time in minutes | `60` |
-
-### Database
-
-The API uses SQLite for persistence. The database file is created automatically on first run:
-
-- **Development**: `APSIMAcceptanceTestsSystemWebAPI.db`
-- **Production**: `APSIMAcceptanceTestsSystemWebAPI.db`
-
-Database schema is managed with Entity Framework Core migrations. All migrations are applied automatically on startup.
-
-## Development
-
-### Project Structure
-
-```text
-APSIM.AcceptanceTestsAPIV2/
-├── Data/
-│   ├── AcceptanceTestsDbContext.cs       # EF Core DbContext
-│   └── AcceptanceTestsEntity.cs          # Database entity model
-├── Models/
-│   ├── AcceptanceTestsUpsertRequest.cs   # Request DTO
-│   ├── AcceptanceTestsResponse.cs        # Response DTO
-│   ├── AcceptanceTestsType.cs            # Local enum
-│   ├── AuthTokenRequest.cs            # Auth request DTO
-│   └── AuthTokenResponse.cs           # Auth response DTO
-├── Services/
-│   ├── AcceptanceTestsMapping.cs         # Entity-to-DTO mappers
-│   └── AcceptanceTestsValidation.cs      # Business logic validation
-├── Migrations/
-│   └── [EF Core migrations]
-├── Program.cs                          # API startup configuration
-└── appsettings*.json                   # Configuration files
-
-APSIM.AcceptanceTests.Contracts/
-├── Enums/
-│   ├── LicenceStatus.cs
-│   ├── LicencePathway.cs
-│   └── AnnualTurnover.cs
-├── Interfaces/
-│   └── IAcceptanceTests.cs
-└── Models/
-    ├── GeneralUseAcceptanceTests.cs
-    └── SpecialUseAcceptanceTests.cs
-```
-
-### Building
-
-```bash
-# Clean build
-dotnet clean
-dotnet build
-
-# Release build
-dotnet build -c Release
-
-# Restore NuGet packages
-dotnet restore
-```
-
-### Running Tests
-
-```bash
-dotnet test
-```
-
-(Tests can be added to the `Tests/` folder)
-
-## Security Considerations
-
-### JWT Authentication
-
-- Tokens expire after the configured `JWT_TOKEN_EXPIRY_MINUTES` (default: 60 minutes)
-- Tokens are signed with `HS256` using a symmetric key
-- Token validation includes issuer, audience, and signing key verification
-
-### For Production Deployment
-
-1. **Rotate Credentials**
-   - Replace `AUTH_PASSWORD` with a strong password
-   - Replace `JWT_SIGNING_KEY` with a random 32+ character string
-
-2. **Use Secrets Manager**
-   - Store credentials in Azure Key Vault, AWS Secrets Manager, or similar
-   - Never commit `.env` files to version control
-
-3. **HTTPS Only**
-   - Ensure HTTPS is enforced in production
-   - Update `AllowedHosts` in `appsettings.json` to specific domains
-
-
-## Troubleshooting
-
-### Build Errors
-
-**"dotenv.net not found"**: Run `dotnet restore` to restore all NuGet packages.
-
-**"SQLite database locked"**: Stop any running instances and try again. Kill the process if necessary:
-
-```bash
-# PowerShell
-Stop-Process -Name dotnet -Force
-```
-
-### Runtime Issues
-
-**"Auth:Password is not configured"**: Ensure the `.env` file exists and contains `AUTH_PASSWORD`.
-
-**"Jwt:SigningKey is not configured"**: Check that `.env` includes `JWT_SIGNING_KEY` with at least 32 characters.
-
-**"Database migration failed"**: Delete `APSIMAcceptanceTestsSystemWebAPI.db` files to reset the database, then rebuild.
-
-## Contributing
-
-1. Create a feature branch: `git checkout -b feature/my-feature`
-2. Commit changes: `git commit -am 'Add my feature'`
-3. Push to branch: `git push origin feature/my-feature`
-4. Open a Pull Request
-
-
-## Contact
-
-For questions or support, contact the APSIM team in this repository by creating an issue.
+Provide Azure configuration and persistent storage for the SQLite database and
+download directory when deploying.

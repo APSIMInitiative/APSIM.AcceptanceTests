@@ -17,65 +17,7 @@ namespace AcceptanceTestsWebAPI.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
 
-            modelBuilder.Entity("AcceptanceTestsWebAPI.Data.AcceptanceTaskEntity", b =>
-                {
-                    b.Property<Guid>("RunId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Path")
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("Completed")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("RunId", "Path");
-
-                    b.ToTable("Jobs");
-                });
-
             modelBuilder.Entity("AcceptanceTestsWebAPI.Data.AcceptanceJobEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ContainerName")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("DownloadedFiles")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("FetchAttempts")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("FetchError")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("FetchStatus")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime?>("LeaseExpiresUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid?>("LeaseId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("NextAttemptUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("PullRequestId")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PullRequestId", "ContainerName")
-                        .IsUnique();
-
-                    b.ToTable("Runs");
-                });
-
-            modelBuilder.Entity("AcceptanceTestsWebAPI.Data.PullRequestEntity", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -89,14 +31,38 @@ namespace AcceptanceTestsWebAPI.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<Guid?>("CurrentRunId")
+                    b.Property<string>("ContainerName")
                         .HasColumnType("TEXT");
+
+                    b.Property<int>("DownloadedFiles")
+                        .HasColumnType("INTEGER");
 
                     b.Property<DateTime>("EndTime")
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("FetchAttempts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FetchError")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("FetchStatus")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsCurrent")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LeaseExpiresUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("LeaseId")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Name")
                         .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("NextAttemptUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<int>("NumberOfTasks")
@@ -118,9 +84,33 @@ namespace AcceptanceTestsWebAPI.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Name")
+                        .IsUnique()
+                        .HasFilter("\"IsCurrent\" = 1");
+
+                    b.HasIndex("PullRequest", "Commit")
+                        .IsUnique()
+                        .HasFilter("\"IsCurrent\" = 1");
+
+                    b.HasIndex("PullRequest", "Commit", "ContainerName")
                         .IsUnique();
 
                     b.ToTable("PullRequests");
+                });
+
+            modelBuilder.Entity("AcceptanceTestsWebAPI.Data.AcceptanceTaskEntity", b =>
+                {
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Path")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Completed")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("RunId", "Path");
+
+                    b.ToTable("Jobs", (string)null);
                 });
 
             modelBuilder.Entity("AcceptanceTestsWebAPI.Data.AcceptanceTaskEntity", b =>
@@ -132,17 +122,6 @@ namespace AcceptanceTestsWebAPI.Migrations
                         .IsRequired();
 
                     b.Navigation("Run");
-                });
-
-            modelBuilder.Entity("AcceptanceTestsWebAPI.Data.AcceptanceJobEntity", b =>
-                {
-                    b.HasOne("AcceptanceTestsWebAPI.Data.PullRequestEntity", "PullRequest")
-                        .WithMany()
-                        .HasForeignKey("PullRequestId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("PullRequest");
                 });
 #pragma warning restore 612, 618
         }

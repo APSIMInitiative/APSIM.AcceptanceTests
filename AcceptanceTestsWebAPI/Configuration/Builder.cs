@@ -69,22 +69,7 @@ public class Builder
             {
                 Version = "v1",
                 Title = "APSIM AcceptanceTests API",
-                Description = "API for managing users and organisations in the APSIM AcceptanceTests System."
-            });
-
-            options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-            {
-                Name = "Authorization",
-                Type = SecuritySchemeType.Http,
-                Scheme = "bearer",
-                BearerFormat = "JWT",
-                In = ParameterLocation.Header,
-                Description = "Enter a valid JWT bearer token."
-            });
-
-            options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
-            {
-                [new OpenApiSecuritySchemeReference("Bearer", hostDocument: document, externalResource: null)] = new List<string>()
+                Description = "API for tracking acceptance-test job attempts, task completion and database downloads."
             });
         });
 

@@ -44,15 +44,17 @@ public sealed class DatabaseFetchWorker(
         using IServiceScope scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
         DateTime now = DateTime.UtcNow;
-        AcceptanceJobEntity? run = await ReadyToFetch(db.Jobs.AsNoTracking(), now)
+        AcceptanceJobEntity? run = await ReadyToFetch(db.PullRequests.AsNoTracking(), now)
             .OrderBy(row => row.NextAttemptUtc)
             .FirstOrDefaultAsync(stoppingToken);
         if (run == null)
             return;
+        if (run.ContainerName == null)
+            throw new InvalidOperationException($"Database fetch for run {run.Id} has no container.");
 
         Guid leaseId = Guid.NewGuid();
         // Recheck eligibility in the update itself so only one worker can claim the run.
-        int claimed = await ReadyToFetch(db.Jobs.Where(row => row.Id == run.Id), now)
+        int claimed = await ReadyToFetch(db.PullRequests.Where(row => row.Id == run.Id), now)
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(row => row.FetchStatus, DatabaseFetchStatus.Fetching)
                 .SetProperty(row => row.LeaseId, leaseId)
@@ -68,7 +70,7 @@ public sealed class DatabaseFetchWorker(
             int count = await fetcher.FetchAsync(run.Id, run.ContainerName, fetchCancellation.Token);
             fetchCancellation.Token.ThrowIfCancellationRequested();
             // Only the holder of a still-valid lease can publish a successful result.
-            int completed = await db.Jobs.Where(row => row.Id == run.Id && row.LeaseId == leaseId &&
+            int completed = await db.PullRequests.Where(row => row.Id == run.Id && row.LeaseId == leaseId &&
                     row.FetchStatus == DatabaseFetchStatus.Fetching && row.LeaseExpiresUtc > DateTime.UtcNow)
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(row => row.FetchStatus, DatabaseFetchStatus.Completed)
@@ -91,7 +93,7 @@ public sealed class DatabaseFetchWorker(
             logger.LogError(ex, "Database fetch failed for run {RunId}; it will be retried.", run.Id);
             // Delay successive retries by 1, 2, 4, ... minutes, capped at 64 minutes.
             TimeSpan retryDelay = TimeSpan.FromMinutes(Math.Pow(2, Math.Min(run.FetchAttempts, 6)));
-            await db.Jobs.Where(row => row.Id == run.Id && row.LeaseId == leaseId && row.FetchStatus == DatabaseFetchStatus.Fetching)
+            await db.PullRequests.Where(row => row.Id == run.Id && row.LeaseId == leaseId && row.FetchStatus == DatabaseFetchStatus.Fetching)
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(row => row.FetchStatus, DatabaseFetchStatus.Pending)
                     .SetProperty(row => row.FetchError, "Database fetch failed; see server logs.")
@@ -121,7 +123,7 @@ public sealed class DatabaseFetchWorker(
                 using IServiceScope scope = scopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
                 DateTime now = DateTime.UtcNow;
-                int renewed = await db.Jobs.Where(row => row.Id == runId && row.LeaseId == leaseId &&
+                int renewed = await db.PullRequests.Where(row => row.Id == runId && row.LeaseId == leaseId &&
                         row.FetchStatus == DatabaseFetchStatus.Fetching && row.LeaseExpiresUtc > now)
                     .ExecuteUpdateAsync(setters => setters.SetProperty(row => row.LeaseExpiresUtc, now + LeaseDuration), cancellation.Token);
                 if (renewed == 0)

@@ -74,7 +74,6 @@ app.MapGet("/api/test/deleteall", PullRequestEndpoints.DeleteAll)
 
 app.Run();
 
-/// <summary>Marker type used by WebApplicationFactory to locate the AcceptanceTestsWebAPI entry point.</summary>
 //public class AcceptanceTestsWebApiMarker { }
 
 /*

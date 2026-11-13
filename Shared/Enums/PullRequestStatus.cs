@@ -1,6 +1,6 @@
 namespace Shared.Enums;
 
-/// <summary>Describes the execution lifecycle of a pull request's current acceptance-test run.</summary>
+/// <summary>Describes the execution lifecycle of an acceptance-test job.</summary>
 public enum PullRequestStatus
 {
     Created,

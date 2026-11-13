@@ -42,9 +42,9 @@ public class DatabaseManager : BackgroundService
         {
             AcceptanceTestsDbContext db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
 
-            List<PullRequestEntity> pullRequestsRunning = await db.PullRequests.AsNoTracking().Where(pr => pr.Status == PullRequestStatus.Running).ToListAsync(stoppingToken);
+            List<AcceptanceJobEntity> pullRequestsRunning = await db.PullRequests.AsNoTracking().Where(pr => pr.IsCurrent && pr.Status == PullRequestStatus.Running).ToListAsync(stoppingToken);
 
-            foreach (PullRequestEntity pr in pullRequestsRunning)
+            foreach (AcceptanceJobEntity pr in pullRequestsRunning)
             {
                 double minutesPassed = (DateTime.Now - pr.StartTime).TotalMinutes;
                 if (pr.NumberOfTasks > 0 && pr.NumberOfTasks == pr.NumberOfTasksCompleted)
@@ -55,82 +55,46 @@ public class DatabaseManager : BackgroundService
         }
     }
 
-    private async Task CloseCompletedRunAsync(AcceptanceTestsDbContext db, PullRequestEntity pr, CancellationToken stoppingToken)
+    private async Task CloseCompletedRunAsync(AcceptanceTestsDbContext db, AcceptanceJobEntity pr, CancellationToken stoppingToken)
     {
-        if (pr.CurrentRunId == null)
+        if (pr.ContainerName == null)
         {
-            _logger.LogWarning("Cannot fetch databases for legacy pull request {Id}: run and job information is missing.", pr.Id);
+            _logger.LogWarning("Cannot fetch databases for job {Id}: the storage container is missing.", pr.Id);
             return;
         }
 
-        // Closing the pull request and queuing its fetch must commit together.
-        await using var transaction = await db.Database.BeginTransactionAsync(stoppingToken);
-        int closed = await TryCloseCompletedPullRequestAsync(db, pr, stoppingToken);
-        if (closed == 1)
+        int closed = await db.PullRequests.Where(row => row.Id == pr.Id && row.IsCurrent &&
+                row.Status == PullRequestStatus.Running && row.NumberOfTasks > 0 &&
+                row.NumberOfTasks == row.NumberOfTasksCompleted && row.FetchStatus == DatabaseFetchStatus.WaitingForJobs)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(row => row.Status, PullRequestStatus.Closed)
+                .SetProperty(row => row.EndTime, DateTime.Now)
+                .SetProperty(row => row.FetchStatus, DatabaseFetchStatus.Pending), stoppingToken);
+        if (closed == 0 && await db.PullRequests.AnyAsync(row => row.Id == pr.Id && row.IsCurrent &&
+                row.Status == PullRequestStatus.Running && row.NumberOfTasks > 0 &&
+                row.NumberOfTasks == row.NumberOfTasksCompleted && row.FetchStatus != DatabaseFetchStatus.WaitingForJobs, stoppingToken))
+            throw new InvalidOperationException($"Could not queue database fetch for run {pr.Id}.");
+    }
+
+    private static async Task TimeOutRunAsync(AcceptanceTestsDbContext db, AcceptanceJobEntity pr, CancellationToken stoppingToken)
+    {
+        var incomplete = db.PullRequests.Where(row => row.Id == pr.Id && row.IsCurrent &&
+            row.Status == PullRequestStatus.Running && row.NumberOfTasks != row.NumberOfTasksCompleted);
+        if (pr.ContainerName == null)
         {
-            int queued = await db.Jobs.Where(run => run.Id == pr.CurrentRunId && run.FetchStatus == DatabaseFetchStatus.WaitingForJobs)
-                .ExecuteUpdateAsync(setters => setters.SetProperty(run => run.FetchStatus, DatabaseFetchStatus.Pending), stoppingToken);
-            if (queued != 1)
-                throw new InvalidOperationException($"Could not queue database fetch for run {pr.CurrentRunId}.");
+            await incomplete.ExecuteUpdateAsync(setters => setters
+                .SetProperty(row => row.Status, PullRequestStatus.Timeout)
+                .SetProperty(row => row.EndTime, DateTime.Now), stoppingToken);
+            return;
         }
-        await transaction.CommitAsync(stoppingToken);
-    }
 
-    private static async Task TimeOutRunAsync(AcceptanceTestsDbContext db, PullRequestEntity pr, CancellationToken stoppingToken)
-    {
-        await using var transaction = await db.Database.BeginTransactionAsync(stoppingToken);
-        int timedOut = await TryTimeOutPullRequestAsync(db, pr, stoppingToken);
-        if (timedOut == 1 && pr.CurrentRunId != null)
-        {
-            int updated = await TryMarkRunFetchTimedOutAsync(db, pr.CurrentRunId.Value, stoppingToken);
-            if (updated != 1)
-                throw new InvalidOperationException($"Could not record timeout for run {pr.CurrentRunId}.");
-        }
-        await transaction.CommitAsync(stoppingToken);
-    }
-
-    private static Task<int> TryCloseCompletedPullRequestAsync(
-        AcceptanceTestsDbContext db, PullRequestEntity pr, CancellationToken stoppingToken)
-    {
-        IQueryable<PullRequestEntity> currentRun = db.PullRequests
-            .Where(row => row.Id == pr.Id && row.CurrentRunId == pr.CurrentRunId);
-
-        // The snapshot may be stale, so recheck the run and completion in the update.
-        IQueryable<PullRequestEntity> completedRun = currentRun
-            .Where(row => row.Status == PullRequestStatus.Running &&
-                row.NumberOfTasks > 0 && row.NumberOfTasks == row.NumberOfTasksCompleted);
-
-        return completedRun.ExecuteUpdateAsync(setters => setters
-            .SetProperty(row => row.Status, PullRequestStatus.Closed)
-            .SetProperty(row => row.EndTime, DateTime.Now), stoppingToken);
-    }
-
-    private static Task<int> TryTimeOutPullRequestAsync(
-        AcceptanceTestsDbContext db, PullRequestEntity pr, CancellationToken stoppingToken)
-    {
-        IQueryable<PullRequestEntity> currentRun = db.PullRequests
-            .Where(row => row.Id == pr.Id && row.CurrentRunId == pr.CurrentRunId);
-
-        // Recheck the counts so a run whose final job just completed is not timed out.
-        IQueryable<PullRequestEntity> incompleteRun = currentRun
-            .Where(row => row.Status == PullRequestStatus.Running &&
-                row.NumberOfTasks != row.NumberOfTasksCompleted);
-
-        return incompleteRun.ExecuteUpdateAsync(setters => setters
-            .SetProperty(row => row.Status, PullRequestStatus.Timeout)
-            .SetProperty(row => row.EndTime, DateTime.Now), stoppingToken);
-    }
-
-    private static Task<int> TryMarkRunFetchTimedOutAsync(
-        AcceptanceTestsDbContext db, Guid runId, CancellationToken stoppingToken)
-    {
-        IQueryable<AcceptanceJobEntity> currentRun = db.Jobs
-            .Where(run => run.Id == runId);
-        IQueryable<AcceptanceJobEntity> waitingRun = currentRun
-            .Where(run => run.FetchStatus == DatabaseFetchStatus.WaitingForJobs);
-
-        return waitingRun.ExecuteUpdateAsync(setters => setters
-            .SetProperty(run => run.FetchStatus, DatabaseFetchStatus.TimedOut)
-            .SetProperty(run => run.FetchError, "The run timed out before all jobs reported completion."), stoppingToken);
+        int timedOut = await incomplete.Where(row => row.FetchStatus == DatabaseFetchStatus.WaitingForJobs)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(row => row.Status, PullRequestStatus.Timeout)
+                .SetProperty(row => row.EndTime, DateTime.Now)
+                .SetProperty(row => row.FetchStatus, DatabaseFetchStatus.TimedOut)
+                .SetProperty(row => row.FetchError, "The run timed out before all jobs reported completion."), stoppingToken);
+        if (timedOut == 0 && await incomplete.AnyAsync(row => row.FetchStatus != DatabaseFetchStatus.WaitingForJobs, stoppingToken))
+            throw new InvalidOperationException($"Could not record timeout for run {pr.Id}.");
     }
 }
