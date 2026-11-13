@@ -1,20 +1,5 @@
 namespace AcceptanceTestsWebAPI.Data;
 
-/// <summary>Tracks the database download stage for an acceptance-test run.</summary>
-public enum DatabaseFetchStatus
-{
-    /// <summary>Waiting for all jobs to report completion.</summary>
-    WaitingForJobs,
-    /// <summary>Ready for a worker, or waiting for the next retry.</summary>
-    Pending,
-    /// <summary>A worker holds a lease to fetch the databases.</summary>
-    Fetching,
-    /// <summary>All discovered databases were downloaded, including an empty listing.</summary>
-    Completed,
-    /// <summary>The run timed out before all jobs completed; no fetch was queued.</summary>
-    TimedOut
-}
-
 /// <summary>
 /// Represents one execution of a pull request and its durable database-fetch state.
 /// A separate record is retained for each container so reruns remain distinguishable.
@@ -43,19 +28,4 @@ public class AcceptanceRunEntity
     public string? FetchError { get; set; }
     /// <summary>The pull request associated with this run.</summary>
     public PullRequestEntity PullRequest { get; set; } = null!;
-}
-
-/// <summary>
-/// Tracks completion of a path within a run so repeated job notifications are idempotent.
-/// </summary>
-public class AcceptanceJobEntity
-{
-    /// <summary>Run containing this job.</summary>
-    public Guid RunId { get; set; }
-    /// <summary>Job path supplied when the run started; unique within the run.</summary>
-    public string Path { get; set; } = string.Empty;
-    /// <summary>Whether this job has reported completion.</summary>
-    public bool Completed { get; set; }
-    /// <summary>The run associated with this job.</summary>
-    public AcceptanceRunEntity Run { get; set; } = null!;
 }

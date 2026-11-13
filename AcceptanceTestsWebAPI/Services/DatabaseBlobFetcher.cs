@@ -1,43 +1,10 @@
 using Azure;
-using Azure.Identity;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace AcceptanceTestsWebAPI.Services;
-
-/// <summary>Configures the Azure storage account and persistent local database directory.</summary>
-public sealed class DatabaseFetchOptions
-{
-    /// <summary>HTTPS URI of the Azure storage account, without credentials.</summary>
-    public string StorageAccountUri { get; set; } = string.Empty;
-    /// <summary>Download root; relative paths are resolved against the API content root.</summary>
-    public string Directory { get; set; } = string.Empty;
-}
-
-/// <summary>Downloads a run's databases and returns the number of files fetched.</summary>
-public interface IDatabaseBlobFetcher
-{
-    Task<int> FetchAsync(Guid runId, string containerName, CancellationToken cancellationToken);
-}
-
-/// <summary>Provides access to a run's Azure Blob Storage container.</summary>
-public interface IBlobContainerProvider
-{
-    BlobContainerClient GetContainer(string containerName);
-}
-
-/// <summary>Creates container clients using the configured account and Azure default credentials.</summary>
-public sealed class AzureBlobContainerProvider(IOptions<DatabaseFetchOptions> options) : IBlobContainerProvider
-{
-    public BlobContainerClient GetContainer(string containerName)
-    {
-        if (!Uri.TryCreate(options.Value.StorageAccountUri, UriKind.Absolute, out Uri? accountUri) ||
-            accountUri.Scheme != Uri.UriSchemeHttps)
-            throw new InvalidOperationException("DatabaseFetch:StorageAccountUri must be an absolute HTTPS storage account URI.");
-        return new BlobServiceClient(accountUri, new DefaultAzureCredential()).GetBlobContainerClient(containerName);
-    }
-}
 
 /// <summary>
 /// Downloads database blobs sequentially, preserving their paths within a run-specific directory.

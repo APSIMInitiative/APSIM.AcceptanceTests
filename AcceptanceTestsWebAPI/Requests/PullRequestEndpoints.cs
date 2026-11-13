@@ -1,7 +1,8 @@
+using System.Text.RegularExpressions;
 using AcceptanceTestsWebAPI.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System.Text.RegularExpressions;
+using Shared.Enums;
 
 namespace AcceptanceTestsWebAPI.Requests;
 
@@ -31,7 +32,7 @@ public class PullRequestEndpoints
         pr.EndTime = pr.StartTime;
         pr.NumberOfTasks = 0;
         pr.NumberOfTasksCompleted = 0;
-        pr.Status = Shared.Models.PullRequestStatus.Created;
+        pr.Status = PullRequestStatus.Created;
 
         await db.PullRequests.AddAsync(pr);
         await db.SaveChangesAsync();
@@ -81,7 +82,7 @@ public class PullRequestEndpoints
         if (pr == null)
             return Results.BadRequest(new { status = $"Pull Request with number {pullRequest} and commit hash {commit} was not found in the database" });
 
-        if (pr.Status == Shared.Models.PullRequestStatus.Running)
+        if (pr.Status == PullRequestStatus.Running)
             return Results.BadRequest(new { status = $"Pull Request with number {pullRequest} and commit hash {commit} is already running" });
 
         if (await db.Runs.AnyAsync(run => run.PullRequestId == pr.Id && run.ContainerName == request.ContainerName, cancellationToken))
@@ -91,14 +92,14 @@ public class PullRequestEndpoints
         DateTime startTime = DateTime.Now;
         // The conditional update prevents concurrent start requests from both creating a run.
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        int updated = await db.PullRequests.Where(row => row.Id == pr.Id && row.Status != Shared.Models.PullRequestStatus.Running)
+        int updated = await db.PullRequests.Where(row => row.Id == pr.Id && row.Status != PullRequestStatus.Running)
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(row => row.NumberOfTasks, request.Paths.Length)
                 .SetProperty(row => row.NumberOfTasksCompleted, 0)
                 .SetProperty(row => row.CurrentRunId, runId)
                 .SetProperty(row => row.StartTime, startTime)
                 .SetProperty(row => row.EndTime, startTime)
-                .SetProperty(row => row.Status, Shared.Models.PullRequestStatus.Running), cancellationToken);
+                .SetProperty(row => row.Status, PullRequestStatus.Running), cancellationToken);
         if (updated == 0)
             return Results.Conflict(new { status = "The pull request is already running" });
 
@@ -166,7 +167,7 @@ public class PullRequestEndpoints
         // rechecks the current run so concurrent or late notifications cannot advance it.
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         int completed = await db.Jobs.Where(job => job.RunId == run.Id && job.Path == path && !job.Completed &&
-                db.PullRequests.Any(row => row.Id == pr.Id && row.CurrentRunId == run.Id && row.Status == Shared.Models.PullRequestStatus.Running))
+                db.PullRequests.Any(row => row.Id == pr.Id && row.CurrentRunId == run.Id && row.Status == PullRequestStatus.Running))
             .ExecuteUpdateAsync(setters => setters.SetProperty(job => job.Completed, true), cancellationToken);
         if (completed == 1)
         {

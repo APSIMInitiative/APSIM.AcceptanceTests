@@ -1,5 +1,5 @@
 using System.ComponentModel.DataAnnotations;
-using Shared.Models;
+using Shared.Enums;
 
 namespace AcceptanceTestsWebAPI.Data;
 

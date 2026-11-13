@@ -1,3 +1,4 @@
+using System.Text;
 using AcceptanceTestsWebAPI.Services;
 using Azure;
 using Azure.Core;
@@ -6,9 +7,8 @@ using Azure.Storage.Blobs.Models;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
-using System.Text;
 
-namespace AcceptanceTestsWebAPI.Tests;
+namespace Tests.AcceptanceTestsWebAPI;
 
 /// <summary>Exercises blob selection, local path handling and download failure recovery.</summary>
 public sealed class DatabaseBlobFetcherTests

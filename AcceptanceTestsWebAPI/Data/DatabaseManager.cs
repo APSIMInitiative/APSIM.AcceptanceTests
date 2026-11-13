@@ -1,5 +1,7 @@
-using AcceptanceTestsWebAPI.Data;
 using Microsoft.EntityFrameworkCore;
+using Shared.Enums;
+
+namespace AcceptanceTestsWebAPI.Data;
 
 /// <summary>
 /// Monitors running pull requests, closing completed runs and queuing their
@@ -40,7 +42,7 @@ public class DatabaseManager : BackgroundService
         {
             AcceptanceTestsDbContext db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
 
-            List<PullRequestEntity> pullRequestsRunning = await db.PullRequests.AsNoTracking().Where(pr => pr.Status == Shared.Models.PullRequestStatus.Running).ToListAsync(stoppingToken);
+            List<PullRequestEntity> pullRequestsRunning = await db.PullRequests.AsNoTracking().Where(pr => pr.Status == PullRequestStatus.Running).ToListAsync(stoppingToken);
 
             foreach(PullRequestEntity pr in pullRequestsRunning)
             {
@@ -65,10 +67,10 @@ public class DatabaseManager : BackgroundService
         // Closing the pull request and queuing its fetch must commit together.
         await using var transaction = await db.Database.BeginTransactionAsync(stoppingToken);
         int closed = await db.PullRequests.Where(row => row.Id == pr.Id &&
-                row.CurrentRunId == pr.CurrentRunId && row.Status == Shared.Models.PullRequestStatus.Running &&
+                row.CurrentRunId == pr.CurrentRunId && row.Status == PullRequestStatus.Running &&
                 row.NumberOfTasks > 0 && row.NumberOfTasks == row.NumberOfTasksCompleted)
             .ExecuteUpdateAsync(setters => setters
-                .SetProperty(row => row.Status, Shared.Models.PullRequestStatus.Closed)
+                .SetProperty(row => row.Status, PullRequestStatus.Closed)
                 .SetProperty(row => row.EndTime, DateTime.Now), stoppingToken);
         if (closed == 1)
         {
@@ -85,9 +87,9 @@ public class DatabaseManager : BackgroundService
         // Recheck the counts so a run whose final job just completed is not timed out.
         await using var transaction = await db.Database.BeginTransactionAsync(stoppingToken);
         int timedOut = await db.PullRequests.Where(row => row.Id == pr.Id && row.CurrentRunId == pr.CurrentRunId &&
-                row.Status == Shared.Models.PullRequestStatus.Running && row.NumberOfTasks != row.NumberOfTasksCompleted)
+                row.Status == PullRequestStatus.Running && row.NumberOfTasks != row.NumberOfTasksCompleted)
             .ExecuteUpdateAsync(setters => setters
-                .SetProperty(row => row.Status, Shared.Models.PullRequestStatus.Timeout)
+                .SetProperty(row => row.Status, PullRequestStatus.Timeout)
                 .SetProperty(row => row.EndTime, DateTime.Now), stoppingToken);
         if (timedOut == 1 && pr.CurrentRunId != null)
         {

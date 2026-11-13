@@ -5,9 +5,9 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using Shared.Models;
+using Shared.Enums;
 
-namespace AcceptanceTestsWebAPI.Tests;
+namespace Tests.AcceptanceTestsWebAPI;
 
 /// <summary>Exercises run completion, idempotency, fetch queuing and worker recovery.</summary>
 public sealed class RunWorkflowTests
