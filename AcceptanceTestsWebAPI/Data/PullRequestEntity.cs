@@ -5,7 +5,7 @@ namespace AcceptanceTestsWebAPI.Data;
 
 /// <summary>Stores the current execution status and job counts for a pull request and commit.</summary>
 public class PullRequestEntity
-{    
+{
     /// <summary>Unique identifier for this pull request record.</summary>
     public Guid Id { get; set; }
 

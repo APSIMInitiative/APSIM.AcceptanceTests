@@ -44,7 +44,7 @@ public class DatabaseManager : BackgroundService
 
             List<PullRequestEntity> pullRequestsRunning = await db.PullRequests.AsNoTracking().Where(pr => pr.Status == PullRequestStatus.Running).ToListAsync(stoppingToken);
 
-            foreach(PullRequestEntity pr in pullRequestsRunning)
+            foreach (PullRequestEntity pr in pullRequestsRunning)
             {
                 double minutesPassed = (DateTime.Now - pr.StartTime).TotalMinutes;
                 if (pr.NumberOfTasks > 0 && pr.NumberOfTasks == pr.NumberOfTasksCompleted)

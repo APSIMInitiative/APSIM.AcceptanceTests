@@ -1,5 +1,5 @@
 using System.Text.RegularExpressions;
-using AcceptanceTestsWebAPI.Data;
+using AcceptanceTestsWebAPI.Data;                                                                                       
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Shared.Enums;
@@ -22,17 +22,19 @@ public class PullRequestEndpoints
         if (await GetpullRequestFromDB(db, pullRequest, commit) != null)
             return Results.BadRequest(new { status = $"Pull Request with number {pullRequest} and commit hash {commit} already exists" });
 
-        PullRequestEntity pr = new PullRequestEntity();
-        pr.PullRequest = pullRequest;
-        pr.Commit = commit;
-        pr.Author = author;
-        pr.StartTime = DateTime.Now;
-
-        pr.Name = $"{pr.StartTime.ToString("yyyy-MM-dd-hh-mm-ss")}-{author.ToLower()}-{pullRequest.ToLower()}-{commit.ToLower()}";
-        pr.EndTime = pr.StartTime;
-        pr.NumberOfTasks = 0;
-        pr.NumberOfTasksCompleted = 0;
-        pr.Status = PullRequestStatus.Created;
+        DateTime now = DateTime.Now;
+        PullRequestEntity pr = new PullRequestEntity
+        {
+            PullRequest = pullRequest,
+            Commit = commit,
+            Author = author,
+            StartTime = now,
+            NumberOfTasks = 0,
+            NumberOfTasksCompleted = 0,
+            Status = PullRequestStatus.Created,
+            Name = $"{now.ToString("yyyy-MM-dd-hh-mm-ss")}-{author.ToLower()}-{pullRequest.ToLower()}-{commit.ToLower()}",
+            EndTime = now
+        };
 
         await db.PullRequests.AddAsync(pr);
         await db.SaveChangesAsync();

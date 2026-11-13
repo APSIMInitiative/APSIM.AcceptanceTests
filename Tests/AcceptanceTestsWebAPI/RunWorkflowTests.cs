@@ -254,7 +254,11 @@ public sealed class RunWorkflowTests
             await db.Database.MigrateAsync();
             db.PullRequests.Add(new PullRequestEntity
             {
-                Id = Guid.NewGuid(), Name = "test", PullRequest = "123", Commit = "abc", Author = "test",
+                Id = Guid.NewGuid(),
+                Name = "test",
+                PullRequest = "123",
+                Commit = "abc",
+                Author = "test",
                 Status = PullRequestStatus.Created
             });
             await db.SaveChangesAsync();
