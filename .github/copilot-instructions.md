@@ -42,6 +42,7 @@ target framework.
   self-evident.
 - Do not add a formatter, analyzer, or new style configuration solely for a
   local change.
+- Lines must not exceed 120 characters.
 
 ## Correctness and application behavior
 
