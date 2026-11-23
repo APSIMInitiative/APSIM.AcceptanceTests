@@ -50,6 +50,10 @@ target framework.
   nullable, check values at boundaries, and avoid null-forgiving operators
   unless required by a framework pattern (for example, an EF Core navigation
   property populated by the ORM).
+- For strings where an empty value represents an unset value, prefer a
+  non-nullable string initialized to `string.Empty` over propagating nulls.
+  Keep strings nullable only when null has a distinct semantic meaning or is
+  required by an external or framework contract.
 - Use `async`/`await` for asynchronous I/O. Pass a `CancellationToken` through
   request, database, and background operations when the API provides one;
   avoid blocking asynchronous work with `.Result` or `.Wait()`.
