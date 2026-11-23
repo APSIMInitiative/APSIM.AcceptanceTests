@@ -19,7 +19,7 @@ public class PullRequestEndpoints
     /// </example>
     public async static Task<IResult> Open(AcceptanceTestsDbContext db, string pullRequest, string commit, string author)
     {
-        if (await GetPullRequestFromDB(db, pullRequest, commit) != null)
+        if (await GetPullRequestFromDBWithoutTracking(db, pullRequest, commit) != null)
             return Results.BadRequest(new { status = $"Pull Request with number {pullRequest} and commit hash {commit} already exists" });
 
         DateTime now = DateTime.Now;
@@ -81,7 +81,7 @@ public class PullRequestEndpoints
             !Regex.IsMatch(request.ContainerName, azureContainerNamePattern))
             return Results.BadRequest(new { status = "A valid Azure storage container name is required" });
 
-        AcceptanceJobEntity? pr = await GetPullRequestFromDB(db, pullRequest, commit, cancellationToken);
+        AcceptanceJobEntity? pr = await GetPullRequestFromDBWithoutTracking(db, pullRequest, commit, cancellationToken);
         if (pr == null)
             return Results.BadRequest(new { status = $"Pull Request with number {pullRequest} and commit hash {commit} was not found in the database" });
 
@@ -94,7 +94,7 @@ public class PullRequestEndpoints
         DateTime startTime = DateTime.Now;
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         Guid runId = pr.ContainerName == null ? pr.Id : Guid.NewGuid();
-        var current = db.PullRequests.Where(row => row.Id == pr.Id && row.IsCurrent &&
+        var current = db.CurrentPullRequests.Where(row => row.Id == pr.Id &&
             row.Status != PullRequestStatus.Running);
         int updated;
         if (pr.ContainerName == null)
@@ -109,7 +109,7 @@ public class PullRequestEndpoints
         }
         else
         {
-            updated = await current.ExecuteUpdateAsync(setters => setters.SetProperty(row => row.IsCurrent, false), cancellationToken);
+            updated = await current.ExecuteUpdateAsync(setters => setters.SetProperty(row => row.EndTime, startTime), cancellationToken);
             if (updated == 1)
             {
                 db.PullRequests.Add(new AcceptanceJobEntity
@@ -174,7 +174,7 @@ public class PullRequestEndpoints
         if (data.Count == 0)
             return Results.BadRequest(new { status = "Json fragment missing list of file paths" });
 
-        AcceptanceJobEntity? pr = await GetPullRequestFromDB(db, pullRequest, commit, cancellationToken);
+        AcceptanceJobEntity? pr = await GetPullRequestFromDBWithoutTracking(db, pullRequest, commit, cancellationToken);
         if (pr == null)
             return Results.BadRequest(new { status = $"Pull Request with number {pullRequest} and commit hash {commit} was not found in the database" });
 
@@ -185,11 +185,11 @@ public class PullRequestEndpoints
         // rechecks the current run so concurrent or late notifications cannot advance it.
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         int completed = await db.Tasks.Where(job => job.RunId == pr.Id && job.Path == path && !job.Completed &&
-                db.PullRequests.Any(row => row.Id == pr.Id && row.IsCurrent && row.Status == PullRequestStatus.Running))
+                db.CurrentPullRequests.Any(row => row.Id == pr.Id && row.Status == PullRequestStatus.Running))
             .ExecuteUpdateAsync(setters => setters.SetProperty(job => job.Completed, true), cancellationToken);
         if (completed == 1)
         {
-            await db.PullRequests.Where(row => row.Id == pr.Id && row.IsCurrent)
+            await db.CurrentPullRequests.Where(row => row.Id == pr.Id)
                 .ExecuteUpdateAsync(setters => setters.SetProperty(row => row.NumberOfTasksCompleted, row => row.NumberOfTasksCompleted + 1), cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return Results.Ok(new { status = "ok" });
@@ -198,7 +198,7 @@ public class PullRequestEndpoints
         // A retry is successful even after the run closes, but not after a different run starts.
         bool alreadyCompleted = await db.Tasks.AsNoTracking().AnyAsync(
             job => job.RunId == pr.Id && job.Path == path && job.Completed &&
-                db.PullRequests.Any(row => row.Id == pr.Id && row.IsCurrent), cancellationToken);
+                db.CurrentPullRequests.Any(row => row.Id == pr.Id), cancellationToken);
         if (!alreadyCompleted)
             return Results.Conflict(new { status = "Job is not part of the current running pull request" });
 
@@ -216,7 +216,7 @@ public class PullRequestEndpoints
     /// </example>
     public async static Task<IResult> Get(AcceptanceTestsDbContext db, string pullRequest, string commit)
     {
-        AcceptanceJobEntity? pr = await GetPullRequestFromDB(db, pullRequest, commit);
+        AcceptanceJobEntity? pr = await GetPullRequestFromDBWithoutTracking(db, pullRequest, commit);
         if (pr == null)
             return Results.BadRequest(new { status = $"Pull Request with number {pullRequest} and commit hash {commit} was not found in the database" });
 
@@ -247,7 +247,7 @@ public class PullRequestEndpoints
     /// </example>
     public async static Task<IResult> List(AcceptanceTestsDbContext db)
     {
-        return Results.Ok(db.PullRequests.Where(row => row.IsCurrent));
+        return Results.Ok(db.CurrentPullRequests);
     }
 
     /// <summary>Deletes all jobs for the specified pull request and commit when the token is valid.</summary>
@@ -263,7 +263,7 @@ public class PullRequestEndpoints
         if (token == "12345678")
         {
             await using var transaction = await db.Database.BeginTransactionAsync();
-            AcceptanceJobEntity? pr = await GetPullRequestFromDB(db, pullRequest, commit);
+            AcceptanceJobEntity? pr = await GetPullRequestFromDBWithoutTracking(db, pullRequest, commit);
             if (pr == null)
                 return Results.BadRequest(new { status = $"Pull Request with number {pullRequest} and commit hash {commit} was not found in the database" });
             
@@ -301,13 +301,14 @@ public class PullRequestEndpoints
     /// <param name="pullRequest">Pull request number to find, such as <c>123</c>.</param>
     /// <param name="commit">Commit hash to find, such as <c>a1b2c3d</c>.</param>
     /// <example>
-    /// <code>GetPullRequestFromDB(db, "123", "a1b2c3d")</code>
+    /// <code>GetPullRequestFromDBWithoutTracking(db, "123", "a1b2c3d")</code>
     /// </example>
-    private async static Task<AcceptanceJobEntity?> GetPullRequestFromDB(AcceptanceTestsDbContext db, string pullRequest, string commit, CancellationToken cancellationToken = default)
+    private async static Task<AcceptanceJobEntity?> GetPullRequestFromDBWithoutTracking(
+        AcceptanceTestsDbContext db, string pullRequest, string commit, CancellationToken cancellationToken = default)
     {
-        return await db.PullRequests.AsNoTracking().FirstOrDefaultAsync(row => 
-                row.PullRequest == pullRequest && 
-                row.Commit == commit && 
-                row.IsCurrent, cancellationToken);
+        return await db.CurrentPullRequests.AsNoTracking().FirstOrDefaultAsync(row =>
+                row.PullRequest == pullRequest &&
+                row.Commit == commit, cancellationToken);
     }
+
 }

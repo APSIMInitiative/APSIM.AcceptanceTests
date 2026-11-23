@@ -6,6 +6,13 @@ public class AcceptanceTestsDbContext(DbContextOptions<AcceptanceTestsDbContext>
 {
     public DbSet<AcceptanceJobEntity> PullRequests => Set<AcceptanceJobEntity>();
     public DbSet<AcceptanceTaskEntity> Tasks => Set<AcceptanceTaskEntity>();
+    public IQueryable<AcceptanceJobEntity> CurrentPullRequests => PullRequests.Where(run =>
+        run.Id == PullRequests.Where(other =>
+                other.PullRequest == run.PullRequest && other.Commit == run.Commit)
+            .OrderByDescending(other => other.StartTime)
+            .ThenByDescending(other => other.Id)
+            .Select(other => other.Id)
+            .First());
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -13,8 +20,7 @@ public class AcceptanceTestsDbContext(DbContextOptions<AcceptanceTestsDbContext>
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Name).IsRequired();
-            entity.HasIndex(e => e.Name).IsUnique().HasFilter("\"IsCurrent\" = 1");
-            entity.HasIndex(e => new { e.PullRequest, e.Commit }).IsUnique().HasFilter("\"IsCurrent\" = 1");
+            entity.HasIndex(e => new { e.PullRequest, e.Commit, e.StartTime });
             entity.HasIndex(e => new { e.PullRequest, e.Commit, e.ContainerName }).IsUnique();
         });
         modelBuilder.Entity<AcceptanceTaskEntity>(entity =>

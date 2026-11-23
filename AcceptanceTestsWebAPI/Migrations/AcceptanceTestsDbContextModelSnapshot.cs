@@ -49,9 +49,6 @@ namespace AcceptanceTestsWebAPI.Migrations
                     b.Property<int>("FetchStatus")
                         .HasColumnType("INTEGER");
 
-                    b.Property<bool>("IsCurrent")
-                        .HasColumnType("INTEGER");
-
                     b.Property<DateTime?>("LeaseExpiresUtc")
                         .HasColumnType("TEXT");
 
@@ -83,16 +80,10 @@ namespace AcceptanceTestsWebAPI.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Name")
-                        .IsUnique()
-                        .HasFilter("\"IsCurrent\" = 1");
-
-                    b.HasIndex("PullRequest", "Commit")
-                        .IsUnique()
-                        .HasFilter("\"IsCurrent\" = 1");
-
                     b.HasIndex("PullRequest", "Commit", "ContainerName")
                         .IsUnique();
+
+                    b.HasIndex("PullRequest", "Commit", "StartTime");
 
                     b.ToTable("PullRequests");
                 });

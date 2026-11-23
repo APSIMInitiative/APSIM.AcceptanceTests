@@ -41,10 +41,6 @@ public class AcceptanceJobEntity
     /// <summary>Execution status of this attempt.</summary>
     public PullRequestStatus Status { get; set; } = PullRequestStatus.Created;
 
-    /// <summary>Whether this is the current attempt for the pull request and commit.</summary>
-    [JsonIgnore]
-    public bool IsCurrent { get; set; } = true;
-
     /// <summary>Azure container holding this attempt's outputs, once started.</summary>
     [JsonIgnore]
     public string? ContainerName { get; set; }

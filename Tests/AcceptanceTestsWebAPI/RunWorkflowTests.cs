@@ -113,10 +113,10 @@ public sealed class RunWorkflowTests
         Assert.Equal(2, attempts.Count);
         Assert.Equal(oldRunId, attempts[0].Id);
         Assert.NotEqual(attempts[0].Id, attempts[1].Id);
-        Assert.False(attempts[0].IsCurrent);
+        Assert.True(attempts[1].StartTime > attempts[0].StartTime);
         Assert.Equal(DatabaseFetchStatus.Completed, attempts[0].FetchStatus);
         Assert.Equal(2, attempts[0].DownloadedFiles);
-        Assert.True(attempts[1].IsCurrent);
+        Assert.Equal(attempts[1].Id, (await resultDb.CurrentPullRequests.SingleAsync()).Id);
         Assert.Equal(PullRequestStatus.Running, attempts[1].Status);
         Assert.Equal(409, await fixture.CompleteAsync("run-one", "one"));
         var get = (IValueHttpResult)await PullRequestEndpoints.Get(resultDb, "123", "abc");
@@ -151,7 +151,7 @@ public sealed class RunWorkflowTests
         using var scope = fixture.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
         Assert.Equal(2, await db.PullRequests.CountAsync());
-        Assert.Equal(1, await db.PullRequests.CountAsync(row => row.IsCurrent));
+        Assert.Single(await db.CurrentPullRequests.ToListAsync());
     }
 
     [Fact]
