@@ -13,8 +13,13 @@ With the .NET 10 SDK installed, run from the repository root:
 dotnet watch run --project AcceptanceTestsWebApp\AcceptanceTestsWebApp.csproj
 ```
 
-Open the URL printed at startup. In VS Code, the
-**Just Watch AcceptanceTestsWebApp** task also runs the application with watch.
+The launch profile runs the app in Development at `http://localhost:5012`.
+In VS Code, the **Just Watch AcceptanceTestsWebApp** task also runs the
+application with watch. HTTPS redirection is disabled for local development.
+
+For production, run the published output rather than the build output so
+static web assets are available. Configure HTTPS on the application or its
+reverse proxy.
 
 ## Pages
 

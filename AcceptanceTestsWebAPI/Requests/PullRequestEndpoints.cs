@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
-using AcceptanceTestsWebAPI.Data;                                                                                       
+using AcceptanceTestsWebAPI.Data;
+using AcceptanceTestsWebAPI.Utilities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Shared.Enums;
@@ -23,17 +24,16 @@ public class PullRequestEndpoints
             return Results.BadRequest(new { status = $"Pull Request with number {pullRequest} and commit hash {commit} already exists" });
 
         DateTime now = DateTime.Now;
-        AcceptanceJobEntity pr = new AcceptanceJobEntity
+        AcceptanceJobEntity pr = new()
         {
             Id = Guid.NewGuid(),
-            PullRequest = pullRequest,
+            PullRequestNumber = pullRequest,
             Commit = commit,
             Author = author,
             StartTime = now,
             NumberOfTasks = 0,
             NumberOfTasksCompleted = 0,
             Status = PullRequestStatus.Created,
-            Name = $"{now.ToString("yyyy-MM-dd-hh-mm-ss")}-{author.ToLower()}-{pullRequest.ToLower()}-{commit.ToLower()}",
             EndTime = now
         };
 
@@ -43,66 +43,59 @@ public class PullRequestEndpoints
         return Results.Ok(new { status = "ok" });
     }
 
-    /// <summary>Identifies a job's task paths and its Azure storage container.</summary>
-    public sealed record StartJSON(string PullRequest, string Commit, string[] Paths, string ContainerName);
+    /// <summary>Identifies a job's task paths and the UTC timestamp used to create its name.</summary>
+    public sealed record StartJSON(string PullRequest, string Commit, string[] Paths, string Datetime);
+
     /// <summary>Starts an acceptance job for a pull request and records its task paths.</summary>
     /// <param name="db">Database context used to update the record.</param>
-    /// <param name="request">Request containing the pull request, commit, distinct job paths and unique storage container.</param>
+    /// <param name="request">Request containing the pull request, commit, distinct job paths and UTC start timestamp.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <example>
     /// <code>
     /// {
     ///   "pullRequest": "123",
     ///   "commit": "a1b2c3d",
-    ///   "paths": ["Tests/Wheat.apsimx", "Tests/Barley.apsimx"],
-    ///   "containerName": "2026-11-12-acceptance-tests-pr-123-storage"
+    ///   "paths": ["Tests/Wheat.apsimx"],
+    ///   "dateTime": "2026-10-15T04:03:22"
     /// }
     /// </code>
     /// </example>
     public async static Task<IResult> Start(AcceptanceTestsDbContext db, [FromBody]StartJSON request, CancellationToken cancellationToken)
     {
-        string pullRequest = request.PullRequest;
-        if (string.IsNullOrEmpty(pullRequest))
-            return Results.BadRequest(new { status = "Json fragment missing pullRequest number" });
+        List<string> errors = PullRequestUtility.ValidateStartRequest(request, out DateTime parsedDateTime);
+        if (errors.Count > 0)
+            return Results.BadRequest(new { status = errors });
 
+        string pullRequestNumber = request.PullRequest;
         string commit = request.Commit;
-        if (string.IsNullOrEmpty(commit))
-            return Results.BadRequest(new { status = "Json fragment missing commit hash" });
+        string jobName = PullRequestUtility.CreateName(pullRequestNumber, parsedDateTime);
 
-        if (request.Paths == null || request.Paths.Length == 0 ||
-            request.Paths.Any(string.IsNullOrWhiteSpace))
-            return Results.BadRequest(new { status = "A non-empty list of job paths is required" });
-        if (request.Paths.Distinct(StringComparer.Ordinal).Count() != request.Paths.Length)
-            return Results.BadRequest(new { status = "Job paths must be unique within a run" });
-
-        // 3-63 lowercase letters or digits, with single hyphens only between them.
-        const string azureContainerNamePattern = @"^(?=.{3,63}$)[a-z0-9]+(?:-[a-z0-9]+)*$";
-        if (string.IsNullOrWhiteSpace(request.ContainerName) ||
-            !Regex.IsMatch(request.ContainerName, azureContainerNamePattern))
-            return Results.BadRequest(new { status = "A valid Azure storage container name is required" });
-
-        AcceptanceJobEntity? pr = await GetPullRequestFromDBWithoutTracking(db, pullRequest, commit, cancellationToken);
+        AcceptanceJobEntity? pr = await GetPullRequestFromDBWithoutTracking(db, pullRequestNumber, commit, cancellationToken);
         if (pr == null)
-            return Results.BadRequest(new { status = $"Pull Request with number {pullRequest} and commit hash {commit} was not found in the database" });
+            return Results.BadRequest(new { status = $"Pull Request with number {pullRequestNumber} and commit hash {commit} was not found in the database" });
 
         if (pr.Status == PullRequestStatus.Running)
-            return Results.BadRequest(new { status = $"Pull Request with number {pullRequest} and commit hash {commit} is already running" });
+            return Results.BadRequest(new { status = $"Pull Request with number {pullRequestNumber} and commit hash {commit} is already running" });
 
-        if (await db.PullRequests.AnyAsync(run => run.PullRequest == pullRequest && run.Commit == commit && run.ContainerName == request.ContainerName, cancellationToken))
-            return Results.Conflict(new { status = "The container name has already been used for this pull request and commit" });
+        if (await db.PullRequests.AnyAsync(run =>
+                run.PullRequestNumber == pullRequestNumber && run.Commit == commit && run.Name == jobName, cancellationToken))
+            return Results.Conflict(new
+            {
+                status = "The job name has already been used for this pull request and commit"
+            });
 
         DateTime startTime = DateTime.Now;
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        Guid runId = pr.ContainerName == null ? pr.Id : Guid.NewGuid();
+        Guid runId = string.IsNullOrEmpty(pr.ContainerName) ? pr.Id : Guid.NewGuid();
         var current = db.CurrentPullRequests.Where(row => row.Id == pr.Id &&
             row.Status != PullRequestStatus.Running);
         int updated;
-        if (pr.ContainerName == null)
+        if (string.IsNullOrEmpty(pr.ContainerName))
         {
             updated = await current.ExecuteUpdateAsync(setters => setters
                 .SetProperty(row => row.NumberOfTasks, request.Paths.Length)
                 .SetProperty(row => row.NumberOfTasksCompleted, 0)
-                .SetProperty(row => row.ContainerName, request.ContainerName)
+                .SetProperty(row => row.Name, jobName)
                 .SetProperty(row => row.StartTime, startTime)
                 .SetProperty(row => row.EndTime, startTime)
                 .SetProperty(row => row.Status, PullRequestStatus.Running), cancellationToken);
@@ -114,8 +107,8 @@ public class PullRequestEndpoints
             {
                 db.PullRequests.Add(new AcceptanceJobEntity
                 {
-                    Id = runId, Name = pr.Name, PullRequest = pr.PullRequest,
-                    Commit = pr.Commit, Author = pr.Author, ContainerName = request.ContainerName,
+                    Id = runId, Name = jobName, PullRequestNumber = pr.PullRequestNumber,
+                    Commit = pr.Commit, Author = pr.Author,
                     NumberOfTasks = request.Paths.Length, NumberOfTasksCompleted = 0,
                     StartTime = startTime, EndTime = startTime, Status = PullRequestStatus.Running
                 });
@@ -227,12 +220,19 @@ public class PullRequestEndpoints
     public sealed record DatabaseFetchResponse(Guid RunId, string ContainerName, string Status, int Attempts, int DownloadedFiles, string? Error);
 
     /// <summary>Gets the database fetch status for a run.</summary>
-    public async static Task<IResult> GetDatabaseFetch(AcceptanceTestsDbContext db, string pullRequest, string commit, string containerName, CancellationToken cancellationToken)
+    public async static Task<IResult> GetDatabaseFetch(
+        AcceptanceTestsDbContext db,
+        string pullRequest,
+        string commit,
+        string containerName,
+        CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(containerName))
+        if (string.IsNullOrWhiteSpace(containerName) ||
+            !containerName.EndsWith("-storage", StringComparison.Ordinal))
             return Results.NotFound(new { status = "Run not found" });
-        var run = await db.PullRequests.AsNoTracking().Where(row => row.PullRequest == pullRequest &&
-                row.Commit == commit && row.ContainerName == containerName)
+        string jobName = containerName[..^"-storage".Length];
+        var run = await db.PullRequests.AsNoTracking()
+            .Where(row => row.PullRequestNumber == pullRequest && row.Commit == commit && row.Name == jobName)
             .Select(row => new { row.Id, row.FetchStatus, row.FetchAttempts, row.DownloadedFiles, row.FetchError })
             .FirstOrDefaultAsync(cancellationToken);
         if (run == null)
@@ -267,7 +267,7 @@ public class PullRequestEndpoints
             if (pr == null)
                 return Results.BadRequest(new { status = $"Pull Request with number {pullRequest} and commit hash {commit} was not found in the database" });
             
-            await db.PullRequests.Where(row => row.PullRequest == pullRequest && row.Commit == commit).ExecuteDeleteAsync();
+            await db.PullRequests.Where(row => row.PullRequestNumber == pullRequest && row.Commit == commit).ExecuteDeleteAsync();
             await transaction.CommitAsync();
             return Results.Ok(new { status = "ok" });
         }
@@ -307,7 +307,7 @@ public class PullRequestEndpoints
         AcceptanceTestsDbContext db, string pullRequest, string commit, CancellationToken cancellationToken = default)
     {
         return await db.CurrentPullRequests.AsNoTracking().FirstOrDefaultAsync(row =>
-                row.PullRequest == pullRequest &&
+                row.PullRequestNumber == pullRequest &&
                 row.Commit == commit, cancellationToken);
     }
 

@@ -49,7 +49,7 @@ public sealed class DatabaseFetchWorker(
             .FirstOrDefaultAsync(stoppingToken);
         if (run == null)
             return;
-        if (run.ContainerName == null)
+        if (string.IsNullOrEmpty(run.ContainerName))
             throw new InvalidOperationException($"Database fetch for run {run.Id} has no container.");
 
         Guid leaseId = Guid.NewGuid();

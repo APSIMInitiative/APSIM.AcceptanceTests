@@ -31,9 +31,6 @@ namespace AcceptanceTestsWebAPI.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("ContainerName")
-                        .HasColumnType("TEXT");
-
                     b.Property<int>("DownloadedFiles")
                         .HasColumnType("INTEGER");
 
@@ -68,7 +65,7 @@ namespace AcceptanceTestsWebAPI.Migrations
                     b.Property<int>("NumberOfTasksCompleted")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("PullRequest")
+                    b.Property<string>("PullRequestNumber")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
@@ -80,10 +77,10 @@ namespace AcceptanceTestsWebAPI.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("PullRequest", "Commit", "ContainerName")
+                    b.HasIndex("PullRequestNumber", "Commit", "Name")
                         .IsUnique();
 
-                    b.HasIndex("PullRequest", "Commit", "StartTime");
+                    b.HasIndex("PullRequestNumber", "Commit", "StartTime");
 
                     b.ToTable("PullRequests");
                 });

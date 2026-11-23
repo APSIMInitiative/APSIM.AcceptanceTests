@@ -58,7 +58,7 @@ public class DatabaseManager : BackgroundService
 
     private async Task CloseCompletedRunAsync(AcceptanceTestsDbContext db, AcceptanceJobEntity pr, CancellationToken stoppingToken)
     {
-        if (pr.ContainerName == null)
+        if (string.IsNullOrEmpty(pr.ContainerName))
         {
             _logger.LogWarning("Cannot fetch databases for job {Id}: the storage container is missing.", pr.Id);
             return;
@@ -81,7 +81,7 @@ public class DatabaseManager : BackgroundService
     {
         var incomplete = db.CurrentPullRequests.Where(row => row.Id == pr.Id &&
             row.Status == PullRequestStatus.Running && row.NumberOfTasks != row.NumberOfTasksCompleted);
-        if (pr.ContainerName == null)
+        if (string.IsNullOrEmpty(pr.ContainerName))
         {
             await incomplete.ExecuteUpdateAsync(setters => setters
                 .SetProperty(row => row.Status, PullRequestStatus.Timeout)

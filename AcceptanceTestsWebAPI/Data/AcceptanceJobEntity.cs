@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
 using Shared.Enums;
 
@@ -10,13 +11,12 @@ public class AcceptanceJobEntity
     /// <summary>Unique identifier for this attempt and its local download directory.</summary>
     public Guid Id { get; set; }
 
-    /// <summary>Display name generated when the pull request record is opened and shared by its attempts.</summary>
-    [Required]
+    /// <summary>Azure job name for this attempt, before the <c>-storage</c> suffix.</summary>
     public string Name { get; set; } = string.Empty;
 
     /// <summary>Pull request number.</summary>
     [Required]
-    public string PullRequest { get; set; } = string.Empty;
+    public string PullRequestNumber { get; set; } = string.Empty;
 
     /// <summary>Commit hash identifying the revision under test.</summary>
     [Required]
@@ -42,8 +42,9 @@ public class AcceptanceJobEntity
     public PullRequestStatus Status { get; set; } = PullRequestStatus.Created;
 
     /// <summary>Azure container holding this attempt's outputs, once started.</summary>
+    [NotMapped]
     [JsonIgnore]
-    public string? ContainerName { get; set; }
+    public string ContainerName => string.IsNullOrEmpty(Name) ? string.Empty : $"{Name}-storage";
 
     /// <summary>Current state of the database download.</summary>
     [JsonIgnore]

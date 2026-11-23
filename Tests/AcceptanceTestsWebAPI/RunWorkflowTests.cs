@@ -1,9 +1,14 @@
+using System.Collections.Concurrent;
+using System.Globalization;
 using AcceptanceTestsWebAPI.Data;
 using AcceptanceTestsWebAPI.Requests;
 using AcceptanceTestsWebAPI.Services;
+using AcceptanceTestsWebAPI.Utilities;
 using Microsoft.Data.Sqlite;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shared.Enums;
@@ -13,6 +18,72 @@ namespace Tests.AcceptanceTestsWebAPI;
 /// <summary>Exercises run completion, idempotency, fetch queuing and worker recovery.</summary>
 public sealed class RunWorkflowTests
 {
+    [Fact]
+    public async Task MigrationPreservesExistingRunsAndRenamesPullRequestColumn()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<AcceptanceTestsDbContext>().UseSqlite(connection).Options;
+        await using var db = new AcceptanceTestsDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        await migrator.MigrateAsync("20261123040428_DeriveCurrentAttemptFromStartTime");
+        Guid unstartedId = Guid.NewGuid();
+        Guid startedId = Guid.NewGuid();
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "PullRequests" ("Id", "Name", "PullRequest", "Commit", "Author",
+                "NumberOfTasks", "NumberOfTasksCompleted", "StartTime", "EndTime", "Status",
+                "ContainerName", "FetchStatus", "FetchAttempts", "DownloadedFiles")
+            VALUES ({unstartedId}, 'old-name', '123', 'abc', 'author', 0, 0,
+                '2026-10-15 04:03:22', '2026-10-15 04:03:22', 0, NULL, 0, 0, 0),
+                ({startedId}, 'old-name', '456', 'def', 'author', 1, 0,
+                '2026-10-15 04:03:22', '2026-10-15 04:03:22', 1, 'azure-job-storage', 0, 0, 0)
+            """);
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"""INSERT INTO "Jobs" ("RunId", "Path", "Completed") VALUES ({startedId}, 'job', 0)""");
+
+        await migrator.MigrateAsync();
+
+        var runs = await db.PullRequests.AsNoTracking().ToDictionaryAsync(run => run.Id);
+        Assert.Equal("123", runs[unstartedId].PullRequestNumber);
+        Assert.Equal(string.Empty, runs[unstartedId].Name);
+        Assert.Equal(string.Empty, runs[unstartedId].ContainerName);
+        Assert.Equal("456", runs[startedId].PullRequestNumber);
+        Assert.Equal("azure-job", runs[startedId].Name);
+        Assert.Equal("azure-job-storage", runs[startedId].ContainerName);
+        Assert.Equal("def", runs[startedId].Commit);
+        Assert.Equal("job", (await db.Tasks.AsNoTracking().SingleAsync()).Path);
+
+        await migrator.MigrateAsync("20261123054105_RequireAcceptanceJobName");
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT \"PullRequest\" FROM \"PullRequests\" WHERE \"Commit\" = 'def'";
+        Assert.Equal("456", await command.ExecuteScalarAsync());
+    }
+
+    [Fact]
+    public async Task MigrationRejectsLegacyContainerThatCannotBeDerived()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<AcceptanceTestsDbContext>().UseSqlite(connection).Options;
+        await using var db = new AcceptanceTestsDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        await migrator.MigrateAsync("20261123040428_DeriveCurrentAttemptFromStartTime");
+        Guid id = Guid.NewGuid();
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "PullRequests" ("Id", "Name", "PullRequest", "Commit", "Author",
+                "NumberOfTasks", "NumberOfTasksCompleted", "StartTime", "EndTime", "Status",
+                "ContainerName", "FetchStatus", "FetchAttempts", "DownloadedFiles")
+            VALUES ({id}, 'old-name', '123', 'abc', 'author', 1, 0,
+                '2026-10-15 04:03:22', '2026-10-15 04:03:22', 1, 'legacy-container', 0, 0, 0)
+            """);
+
+        var error = await Assert.ThrowsAsync<SqliteException>(() => migrator.MigrateAsync());
+        Assert.Contains("ContainerNameMustEndInStorage", error.Message);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT \"ContainerName\" FROM \"PullRequests\"";
+        Assert.Equal("legacy-container", await command.ExecuteScalarAsync());
+    }
+
     [Fact]
     public async Task CompletionIsIdempotentAndOnlyQueuesAfterEveryDistinctJob()
     {
@@ -78,9 +149,10 @@ public sealed class RunWorkflowTests
 
         using var scope = fixture.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
-        IResult result = await PullRequestEndpoints.Start(db, new("123", "abc", ["one"], "run-one"), CancellationToken.None);
+        IResult result = await PullRequestEndpoints.Start(
+            db, new("123", "abc", ["one"], fixture.GetDateTime("run-one")), CancellationToken.None);
         Assert.Equal(409, ((IStatusCodeHttpResult)result).StatusCode);
-        Assert.Equal(2, await db.PullRequests.CountAsync(row => row.ContainerName != null));
+        Assert.Equal(2, await db.PullRequests.CountAsync(row => row.Name != string.Empty));
     }
 
     [Fact]
@@ -102,15 +174,19 @@ public sealed class RunWorkflowTests
         var fetcher = new FakeFetcher((runId, container, _) =>
         {
             Assert.Equal(oldRunId, runId);
-            Assert.Equal("run-one", container);
+            Assert.Equal(fixture.GetContainerName("run-one"), container);
             return Task.FromResult(2);
         });
         await fixture.Worker(fetcher).ProcessNextAsync(CancellationToken.None);
 
         using var resultScope = fixture.Services.CreateScope();
         var resultDb = resultScope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
-        var attempts = await resultDb.PullRequests.OrderBy(row => row.ContainerName).ToListAsync();
+        var attempts = await resultDb.PullRequests.OrderBy(row => row.Name).ToListAsync();
         Assert.Equal(2, attempts.Count);
+        Assert.Equal(
+            new[] { fixture.GetJobName("run-one"), fixture.GetJobName("run-two") },
+            attempts.Select(attempt => attempt.Name));
+        Assert.All(attempts, attempt => Assert.Equal($"{attempt.Name}-storage", attempt.ContainerName));
         Assert.Equal(oldRunId, attempts[0].Id);
         Assert.NotEqual(attempts[0].Id, attempts[1].Id);
         Assert.True(attempts[1].StartTime > attempts[0].StartTime);
@@ -129,7 +205,8 @@ public sealed class RunWorkflowTests
         Assert.DoesNotContain("\"ContainerName\"", json);
         var list = (IValueHttpResult)await PullRequestEndpoints.List(resultDb);
         Assert.Single(await Assert.IsAssignableFrom<IQueryable<AcceptanceJobEntity>>(list.Value).ToListAsync());
-        var fetch = (IValueHttpResult)await PullRequestEndpoints.GetDatabaseFetch(resultDb, "123", "abc", "run-one", CancellationToken.None);
+        var fetch = (IValueHttpResult)await PullRequestEndpoints.GetDatabaseFetch(
+            resultDb, "123", "abc", fixture.GetContainerName("run-one"), CancellationToken.None);
         Assert.Equal(oldRunId, Assert.IsType<PullRequestEndpoints.DatabaseFetchResponse>(fetch.Value).RunId);
         await PullRequestEndpoints.Delete(resultDb, "12345678", "123", "abc");
         Assert.Empty(await resultDb.PullRequests.ToListAsync());
@@ -231,9 +308,105 @@ public sealed class RunWorkflowTests
         await using var fixture = await Fixture.CreateAsync();
         using var scope = fixture.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
-        IResult result = await PullRequestEndpoints.Start(db, new("123", "abc", ["one", "one"], "run-one"), CancellationToken.None);
+        IResult result = await PullRequestEndpoints.Start(
+            db, new("123", "abc", ["one", "one"], fixture.GetDateTime("run-one")), CancellationToken.None);
         Assert.Equal(400, ((IStatusCodeHttpResult)result).StatusCode);
-        Assert.False(await db.PullRequests.AnyAsync(row => row.ContainerName != null));
+        Assert.False(await db.PullRequests.AnyAsync(row => row.Name != string.Empty));
+    }
+
+    [Theory]
+    [InlineData("""{"pullRequest":"","commit":"","paths":null,"datetime":""}""")]
+    [InlineData("""{"pullRequest":"","commit":"","paths":[],"datetime":""}""")]
+    public async Task StartReportsAllMissingFields(string json)
+    {
+        var options = new DbContextOptionsBuilder<AcceptanceTestsDbContext>()
+            .UseSqlite("Data Source=:memory:")
+            .Options;
+        await using var db = new AcceptanceTestsDbContext(options);
+        var request = System.Text.Json.JsonSerializer.Deserialize<PullRequestEndpoints.StartJSON>(
+            json, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Assert.NotNull(request);
+
+        IResult result = await PullRequestEndpoints.Start(db, request, CancellationToken.None);
+
+        Assert.Equal(400, ((IStatusCodeHttpResult)result).StatusCode);
+        var response = System.Text.Json.JsonSerializer.SerializeToElement(((IValueHttpResult)result).Value);
+        Assert.Equal(
+            new[]
+            {
+                "Json fragment missing pullRequest number",
+                "Json fragment missing commit hash",
+                "A non-empty list of job paths is required",
+                "Json fragment missing dateTime string"
+            },
+            response.GetProperty("status").EnumerateArray().Select(error => error.GetString()));
+    }
+
+    [Fact]
+    public async Task StartReportsInvalidAndDuplicatePathsAlongsideInvalidDateTime()
+    {
+        var options = new DbContextOptionsBuilder<AcceptanceTestsDbContext>()
+            .UseSqlite("Data Source=:memory:")
+            .Options;
+        await using var db = new AcceptanceTestsDbContext(options);
+
+        IResult result = await PullRequestEndpoints.Start(
+            db, new("123", "abc", ["", ""], "not-a-date"), CancellationToken.None);
+
+        Assert.Equal(400, ((IStatusCodeHttpResult)result).StatusCode);
+        var response = System.Text.Json.JsonSerializer.SerializeToElement(((IValueHttpResult)result).Value);
+        Assert.Equal(
+            new[]
+            {
+                "A non-empty list of job paths is required",
+                "Job paths must be unique within a run",
+                "dateTime must be a UTC timestamp in yyyy-MM-ddTHH:mm:ss format"
+            },
+            response.GetProperty("status").EnumerateArray().Select(error => error.GetString()));
+    }
+
+    [Theory]
+    [InlineData("2026-10-15T04:03:22Z")]
+    [InlineData("2026-10-15T04:03:22+00:00")]
+    [InlineData("2026-10-15T04:03:22-04:00")]
+    [InlineData("2026-10-15T04:03:22.123456")]
+    [InlineData("not-a-date")]
+    public async Task StartRejectsNonUtcIsoDateTime(string dateTime)
+    {
+        var options = new DbContextOptionsBuilder<AcceptanceTestsDbContext>()
+            .UseSqlite("Data Source=:memory:")
+            .Options;
+        await using var db = new AcceptanceTestsDbContext(options);
+
+        IResult result = await PullRequestEndpoints.Start(
+            db, new("123", "abc", ["one"], dateTime), CancellationToken.None);
+
+        Assert.Equal(400, ((IStatusCodeHttpResult)result).StatusCode);
+    }
+
+    [Fact]
+    public async Task StartAcceptsUtcIsoDateTimeWithoutSuffix()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<AcceptanceTestsDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new AcceptanceTestsDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        db.PullRequests.Add(new AcceptanceJobEntity
+        {
+            Id = Guid.NewGuid(),
+            PullRequestNumber = "123",
+            Commit = "abc",
+            Author = "test"
+        });
+        await db.SaveChangesAsync();
+
+        IResult result = await PullRequestEndpoints.Start(
+            db, new("123", "abc", ["one"], "2026-10-15T04:03:22"), CancellationToken.None);
+
+        Assert.Equal(200, ((IStatusCodeHttpResult)result).StatusCode);
     }
 
     [Fact]
@@ -361,6 +534,8 @@ public sealed class RunWorkflowTests
     private sealed class Fixture : IAsyncDisposable
     {
         private readonly string directory = Path.Combine(Path.GetTempPath(), "ava-tests-" + Guid.NewGuid().ToString("N"));
+        private readonly ConcurrentDictionary<string, string> dateTimes = new();
+        private int nextDateTime;
         public ServiceProvider Services { get; private set; } = null!;
 
         public static async Task<Fixture> CreateAsync()
@@ -377,8 +552,7 @@ public sealed class RunWorkflowTests
             db.PullRequests.Add(new AcceptanceJobEntity
             {
                 Id = Guid.NewGuid(),
-                Name = "test",
-                PullRequest = "123",
+                PullRequestNumber = "123",
                 Commit = "abc",
                 Author = "test",
                 Status = PullRequestStatus.Created
@@ -396,7 +570,8 @@ public sealed class RunWorkflowTests
         {
             using var scope = Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
-            IResult result = await PullRequestEndpoints.Start(db, new("123", "abc", paths, container), CancellationToken.None);
+            IResult result = await PullRequestEndpoints.Start(
+                db, new("123", "abc", paths, GetDateTime(container)), CancellationToken.None);
             return ((IStatusCodeHttpResult)result).StatusCode;
         }
 
@@ -404,9 +579,28 @@ public sealed class RunWorkflowTests
         {
             using var scope = Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
-            IResult result = await PullRequestEndpoints.JobComplete(db, new("123", "abc", path, 1, ["passed"], container), CancellationToken.None);
+            IResult result = await PullRequestEndpoints.JobComplete(
+                db,
+                new("123", "abc", path, 1, ["passed"], GetContainerName(container)),
+                CancellationToken.None);
             return ((IStatusCodeHttpResult)result).StatusCode;
         }
+
+        public string GetDateTime(string key) => dateTimes.GetOrAdd(
+            key,
+            _ => new DateTime(2026, 10, 15, 4, 3, 22, DateTimeKind.Utc)
+                .AddSeconds(Interlocked.Increment(ref nextDateTime))
+                .ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture));
+
+        public string GetJobName(string key) => PullRequestUtility.CreateName(
+            "123",
+            DateTime.ParseExact(
+                GetDateTime(key),
+                "yyyy-MM-dd'T'HH:mm:ss",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal));
+
+        public string GetContainerName(string key) => $"{GetJobName(key)}-storage";
 
         public Task ManageAsync() => new DatabaseManager(Services.GetRequiredService<IServiceScopeFactory>(),
             NullLogger<DatabaseManager>.Instance).DoWorkAsync(CancellationToken.None);

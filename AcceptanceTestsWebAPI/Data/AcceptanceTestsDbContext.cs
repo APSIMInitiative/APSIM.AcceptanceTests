@@ -8,7 +8,7 @@ public class AcceptanceTestsDbContext(DbContextOptions<AcceptanceTestsDbContext>
     public DbSet<AcceptanceTaskEntity> Tasks => Set<AcceptanceTaskEntity>();
     public IQueryable<AcceptanceJobEntity> CurrentPullRequests => PullRequests.Where(run =>
         run.Id == PullRequests.Where(other =>
-                other.PullRequest == run.PullRequest && other.Commit == run.Commit)
+                other.PullRequestNumber == run.PullRequestNumber && other.Commit == run.Commit)
             .OrderByDescending(other => other.StartTime)
             .ThenByDescending(other => other.Id)
             .Select(other => other.Id)
@@ -20,8 +20,8 @@ public class AcceptanceTestsDbContext(DbContextOptions<AcceptanceTestsDbContext>
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Name).IsRequired();
-            entity.HasIndex(e => new { e.PullRequest, e.Commit, e.StartTime });
-            entity.HasIndex(e => new { e.PullRequest, e.Commit, e.ContainerName }).IsUnique();
+            entity.HasIndex(e => new { e.PullRequestNumber, e.Commit, e.StartTime });
+            entity.HasIndex(e => new { e.PullRequestNumber, e.Commit, e.Name }).IsUnique();
         });
         modelBuilder.Entity<AcceptanceTaskEntity>(entity =>
         {

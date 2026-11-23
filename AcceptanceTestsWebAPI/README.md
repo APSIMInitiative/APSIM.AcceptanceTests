@@ -43,8 +43,13 @@ Deleting records also deletes their task records; it does not delete downloaded
 files or Azure containers.
 
 Open a PR and commit before starting its first job. A start request requires a
-non-empty list of distinct paths and a valid Azure container name. A rerun
-requires a different container name for that PR and commit:
+non-empty list of distinct paths and a UTC timestamp in `yyyy-MM-ddTHH:mm:ss`
+format, without fractional seconds or a time-zone suffix.
+The timestamp determines the Azure job name and its storage container. Each
+rerun must produce a distinct job name for that PR and commit:
+
+Invalid start requests return HTTP 400 with a `status` array containing all
+request-validation errors.
 
 ```http
 POST /api/pr/start
@@ -54,7 +59,7 @@ Content-Type: application/json
   "pullRequest": "123",
   "commit": "a1b2c3d",
   "paths": ["Tests/Wheat.apsimx", "Tests/Barley.apsimx"],
-  "containerName": "acceptance-pr-123-attempt-1"
+  "dateTime": "2026-10-15T04:03:22"
 }
 ```
 
@@ -70,7 +75,7 @@ Content-Type: application/json
   "path": "Tests/Wheat.apsimx",
   "time": 12.5,
   "data": ["passed"],
-  "containerName": "acceptance-pr-123-attempt-1"
+  "containerName": "2026-10-15-04-03-22-acceptance-tests-pr-11661-storage"
 }
 ```
 
@@ -105,6 +110,11 @@ at startup except in the `Testing` environment.
 **The current migration is a fresh baseline, not an upgrade from the previous
 schema.** Back up any existing database and use a new empty database or reset it
 before starting this version. Resetting removes the previous data.
+
+For databases already using this baseline, the container-name migration requires
+existing non-null container names to end in `-storage` and have a non-empty
+job name before that suffix. Otherwise it stops without changing those names;
+back up the database and resolve incompatible records before migrating.
 
 After future EF Core model changes, create a migration from the API project
 directory. The Windows script `update-ef-migration.bat` prompts for a name,

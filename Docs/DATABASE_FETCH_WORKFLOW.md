@@ -30,13 +30,15 @@ by container name.
    record for a pull request number, commit and author. The API requires this
    record before a run can start.
 2. **Start a run.** `POST /api/pr/start` supplies the pull request, commit,
-   exact Azure container name and a non-empty list of distinct job paths.
+   exact Azure container name and a non-empty list of distinct job paths. The
+   container name is the Azure job name with `-storage` appended.
    `PullRequestEndpoints.Start` validates the request, starts the existing
    created job on the first run, or creates a new current job for a rerun.
    It records a task for each path and sets the job to `Running`. The job's
-   fetch state starts in `WaitingForJobs`. A container name cannot be reused
-   for a run of the same pull request and commit; a running job cannot be
-   started again.
+   fetch state starts in `WaitingForJobs`. The job name (without `-storage`)
+   is stored in `AcceptanceJobEntity.Name`, and its container name is derived
+   from that value. A job name cannot be reused for a run of the same pull
+   request and commit; a running job cannot be started again.
 3. **Upload and report each task.** The external runner uploads its output
    to Azure, then calls `POST /api/pr/jobcomplete` with the same pull request,
    commit and container name, plus the task path and result data. Each distinct
@@ -75,7 +77,7 @@ Examples of the request bodies and deployment settings are in the
 | --- | --- |
 | [`Program`](../AcceptanceTestsWebAPI/Program.cs) | Maps the pull request lifecycle and fetch-status HTTP endpoints. |
 | [`PullRequestEndpoints`](../AcceptanceTestsWebAPI/Requests/PullRequestEndpoints.cs) | Validates requests, starts jobs, creates tasks, records idempotent task completion, and exposes fetch status. The task update and count increment are transactional. |
-| [`AcceptanceJobEntity`](../AcceptanceTestsWebAPI/Data/AcceptanceJobEntity.cs) | Stores one attempt's PR metadata, execution status, counts, container and durable fetch state. |
+| [`AcceptanceJobEntity`](../AcceptanceTestsWebAPI/Data/AcceptanceJobEntity.cs) | Stores one attempt's PR metadata, Azure job name, execution status, counts and durable fetch state. The storage container is derived from the job name. |
 | [`AcceptanceTaskEntity`](../AcceptanceTestsWebAPI/Data/AcceptanceTaskEntity.cs) and [`DatabaseFetchStatus`](../AcceptanceTestsWebAPI/Data/DatabaseFetchStatus.cs) | Track each task path's completion and the attempt's fetch state. |
 | [`AcceptanceTestsDbContext`](../AcceptanceTestsWebAPI/Data/AcceptanceTestsDbContext.cs) | Persists attempts and tasks in SQLite; enforces one current attempt, unique containers per PR and commit, and unique task paths per attempt. |
 | [`DatabaseManager`](../AcceptanceTestsWebAPI/Data/DatabaseManager.cs) | Polls running pull requests, closes completed runs and queues downloads, or marks incomplete runs as timed out. |
