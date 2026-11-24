@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 
 namespace AcceptanceTestsWebApp.Configuration;
 
+/// <summary>Registers web application services, session, forwarded headers and logging.</summary>
 public class Builder
 {
     public static WebApplicationBuilder CreateBuilder(string[] args)

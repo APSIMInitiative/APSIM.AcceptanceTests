@@ -43,6 +43,10 @@
             "requireExactSource": true,
             "cwd":"${workspaceFolder}/AcceptanceTestsWebApp",
             "preLaunchTask": "Build WebApp",
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development",
+                "ASPNETCORE_URLS": "http://localhost:5012"
+            },
             // Launches the app in your default browser when the API is ready.
             "serverReadyAction":{
                 "action": "openExternally",
@@ -78,6 +82,10 @@
             "requireExactSource": true,
             "cwd":"${workspaceFolder}/AcceptanceTestsWebApp",
             "preLaunchTask": "Build All Projects",
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development",
+                "ASPNETCORE_URLS": "http://localhost:5012"
+            },
         }
 
     ],       

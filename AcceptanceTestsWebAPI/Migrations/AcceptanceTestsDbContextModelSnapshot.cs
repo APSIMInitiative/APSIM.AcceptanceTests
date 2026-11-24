@@ -17,7 +17,7 @@ namespace AcceptanceTestsWebAPI.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
 
-            modelBuilder.Entity("AcceptanceTestsWebAPI.Data.PullRequestEntity", b =>
+            modelBuilder.Entity("AcceptanceTestsWebAPI.Data.AcceptanceJobEntity", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -31,11 +31,32 @@ namespace AcceptanceTestsWebAPI.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("DownloadedFiles")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime>("EndTime")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("FetchAttempts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FetchError")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("FetchStatus")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LeaseExpiresUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("LeaseId")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Name")
                         .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("NextAttemptUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<int>("NumberOfTasks")
@@ -44,7 +65,7 @@ namespace AcceptanceTestsWebAPI.Migrations
                     b.Property<int>("NumberOfTasksCompleted")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("PullRequest")
+                    b.Property<string>("PullRequestNumber")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
@@ -57,9 +78,39 @@ namespace AcceptanceTestsWebAPI.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Name")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"Name\" <> ''");
+
+                    b.HasIndex("PullRequestNumber", "Commit", "StartTime");
 
                     b.ToTable("PullRequests");
+                });
+
+            modelBuilder.Entity("AcceptanceTestsWebAPI.Data.AcceptanceTaskEntity", b =>
+                {
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Path")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Completed")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("RunId", "Path");
+
+                    b.ToTable("Jobs", (string)null);
+                });
+
+            modelBuilder.Entity("AcceptanceTestsWebAPI.Data.AcceptanceTaskEntity", b =>
+                {
+                    b.HasOne("AcceptanceTestsWebAPI.Data.AcceptanceJobEntity", "Run")
+                        .WithMany()
+                        .HasForeignKey("RunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Run");
                 });
 #pragma warning restore 612, 618
         }

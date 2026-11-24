@@ -1,5 +1,5 @@
 @echo off
-REM Run this batch file any time new models are added or existing models are modified in the Shared project.
+REM Run this batch file when changes to the API's EF Core model require a migration.
 REM This batch file is used to add a new Entity Framework migration and update the database.
 REM It prompts the user for a migration name, adds the migration, and then updates the database
 setlocal

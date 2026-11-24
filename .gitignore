@@ -68,3 +68,4 @@ nunit-*.xml
 *.db-journal
 *.db-wal
 *.db-shm
+AcceptanceTestsWebAPI/FetchedDatabases/
