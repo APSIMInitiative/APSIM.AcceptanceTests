@@ -48,7 +48,7 @@ public static class PullRequestUtility
     /// <returns></returns>
     public static string CreateName(string prNumber, DateTime datetime)
     {
-        return $"{datetime.ToString("yyyy-mm-dd-hh-mm-ss")}-acceptance-tests-pr-{prNumber}";
+        return $"{datetime.ToString("yyyy-MM-dd-HH-mm-ss", CultureInfo.InvariantCulture)}-acceptance-tests-pr-{prNumber}";
     }
 
     /// <summary>

@@ -18,6 +18,16 @@ namespace Tests.AcceptanceTestsWebAPI;
 /// <summary>Exercises run completion, idempotency, fetch queuing and worker recovery.</summary>
 public sealed class RunWorkflowTests
 {
+    [Theory]
+    [InlineData(3, 5, 0, "2026-03-05-00-07-09-acceptance-tests-pr-123")]
+    [InlineData(11, 24, 12, "2026-11-24-12-07-09-acceptance-tests-pr-123")]
+    public void CreateNameUsesMonthAnd24HourTime(int month, int day, int hour, string expected)
+    {
+        var dateTime = new DateTime(2026, month, day, hour, 7, 9);
+
+        Assert.Equal(expected, PullRequestUtility.CreateName("123", dateTime));
+    }
+
     [Fact]
     public async Task MigrationPreservesExistingRunsAndRenamesPullRequestColumn()
     {
