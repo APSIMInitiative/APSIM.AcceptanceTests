@@ -21,7 +21,7 @@ public class AcceptanceTestsDbContext(DbContextOptions<AcceptanceTestsDbContext>
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Name).IsRequired();
             entity.HasIndex(e => new { e.PullRequestNumber, e.Commit, e.StartTime });
-            entity.HasIndex(e => new { e.PullRequestNumber, e.Commit, e.Name }).IsUnique();
+            entity.HasIndex(e => e.Name).IsUnique().HasFilter("\"Name\" <> ''");
         });
         modelBuilder.Entity<AcceptanceTaskEntity>(entity =>
         {

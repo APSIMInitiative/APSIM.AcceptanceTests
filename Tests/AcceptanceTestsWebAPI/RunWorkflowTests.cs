@@ -166,6 +166,24 @@ public sealed class RunWorkflowTests
     }
 
     [Fact]
+    public async Task JobCompleteFindsRunByNameAndValidatesPullRequestAndCommit()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.StartAsync("run-one", ["one"]);
+        using var scope = fixture.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AcceptanceTestsDbContext>();
+
+        IResult result = await PullRequestEndpoints.JobComplete(
+            db,
+            new("456", "other-commit", "one", 1, ["passed"], fixture.GetContainerName("run-one")),
+            CancellationToken.None);
+
+        Assert.Equal(409, ((IStatusCodeHttpResult)result).StatusCode);
+        AcceptanceJobEntity run = await db.PullRequests.SingleAsync(row => row.Name != string.Empty);
+        Assert.Equal(0, run.NumberOfTasksCompleted);
+    }
+
+    [Fact]
     public async Task RerunKeepsEarlierFetchIndependentWithDistinctJobIds()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -417,6 +435,93 @@ public sealed class RunWorkflowTests
             db, new("123", "abc", ["one"], "2026-10-15T04:03:22"), CancellationToken.None);
 
         Assert.Equal(200, ((IStatusCodeHttpResult)result).StatusCode);
+    }
+
+    [Fact]
+    public async Task StartRejectsAJobNameAlreadyUsedByAnotherCommit()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<AcceptanceTestsDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new AcceptanceTestsDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        db.PullRequests.AddRange(
+            new AcceptanceJobEntity
+            {
+                Id = Guid.NewGuid(),
+                PullRequestNumber = "123",
+                Commit = "abc",
+                Author = "test"
+            },
+            new AcceptanceJobEntity
+            {
+                Id = Guid.NewGuid(),
+                PullRequestNumber = "123",
+                Commit = "def",
+                Author = "test"
+            });
+        await db.SaveChangesAsync();
+
+        IResult first = await PullRequestEndpoints.Start(
+            db, new("123", "abc", ["one"], "2026-10-15T04:03:22"), CancellationToken.None);
+        IResult duplicate = await PullRequestEndpoints.Start(
+            db, new("123", "def", ["one"], "2026-10-15T04:03:22"), CancellationToken.None);
+
+        Assert.Equal(200, ((IStatusCodeHttpResult)first).StatusCode);
+        Assert.Equal(409, ((IStatusCodeHttpResult)duplicate).StatusCode);
+        Assert.Equal(1, await db.PullRequests.CountAsync(row => row.Name != string.Empty));
+    }
+
+    [Fact]
+    public async Task JobNamesAreGloballyUniqueButUnstartedRowsMayHaveEmptyNames()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<AcceptanceTestsDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new AcceptanceTestsDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        db.PullRequests.AddRange(
+            new AcceptanceJobEntity
+            {
+                Id = Guid.NewGuid(),
+                PullRequestNumber = "123",
+                Commit = "abc",
+                Author = "test"
+            },
+            new AcceptanceJobEntity
+            {
+                Id = Guid.NewGuid(),
+                PullRequestNumber = "456",
+                Commit = "def",
+                Author = "test"
+            });
+        await db.SaveChangesAsync();
+        db.PullRequests.Add(new AcceptanceJobEntity
+        {
+            Id = Guid.NewGuid(),
+            PullRequestNumber = "123",
+            Commit = "abc",
+            Author = "test",
+            Name = "shared-job-name"
+        });
+        await db.SaveChangesAsync();
+        db.PullRequests.Add(new AcceptanceJobEntity
+        {
+            Id = Guid.NewGuid(),
+            PullRequestNumber = "456",
+            Commit = "def",
+            Author = "test",
+            Name = "shared-job-name"
+        });
+
+        DbUpdateException exception = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+        SqliteException sqliteException = Assert.IsType<SqliteException>(exception.InnerException);
+        Assert.Equal(2067, sqliteException.SqliteExtendedErrorCode);
+        Assert.Contains("PullRequests.Name", sqliteException.Message);
     }
 
     [Fact]

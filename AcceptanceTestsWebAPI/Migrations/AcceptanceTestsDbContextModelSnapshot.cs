@@ -77,8 +77,9 @@ namespace AcceptanceTestsWebAPI.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("PullRequestNumber", "Commit", "Name")
-                        .IsUnique();
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasFilter("\"Name\" <> ''");
 
                     b.HasIndex("PullRequestNumber", "Commit", "StartTime");
 
